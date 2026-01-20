@@ -1,0 +1,39 @@
+name: Research Bot (Problem Discovery)
+
+on:
+  schedule:
+    # Run daily at 00:00 WIB (17:00 UTC)
+    - cron: '0 17 * * *'
+  workflow_dispatch:
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: ./research-bot
+        run: npm ci
+
+      - name: Build
+        working-directory: ./research-bot
+        run: npm run build
+
+      - name: Run Research Bot
+        working-directory: ./research-bot
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.RESEARCH_TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.RESEARCH_TURSO_AUTH_TOKEN }}
+          GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.RESEARCH_DISCORD_WEBHOOK_URL }}
+          MIN_RELEVANCE_THRESHOLD: '4'
+        run: npm start

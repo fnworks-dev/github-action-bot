@@ -35,6 +35,14 @@ This public repository is used to run GitHub Actions with unlimited free minutes
 - **Purpose**: Scrapes Twitter/X for potential leads using TwitterAPI.io, scores them with AI, saves to database, and sends Discord notifications
 - **Source Code**: `leadgen-bot/`
 
+### Research Bot (Problem Discovery)
+
+**File**: `.github/workflows/research-bot.yml`
+
+- **Schedule**: Daily at 00:00 WIB (17:00 UTC)
+- **Purpose**: Discovers and analyzes problems from various sources, scores them for relevance, saves to database, and sends Discord notifications
+- **Source Code**: `research-bot/`
+
 ## Why This Repository Exists
 
 GitHub Actions provides **unlimited free minutes** for public repositories, but private repositories are limited to 2,000 minutes/month.
