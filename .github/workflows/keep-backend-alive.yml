@@ -1,0 +1,39 @@
+name: Keep Backend Alive
+
+on:
+  schedule:
+    # Run every 10 minutes to prevent Render free tier cold starts
+    # Render spins down after 15 minutes of inactivity
+    # GitHub Actions can have 5-30 min delays, so 10 min gives buffer
+    - cron: '*/10 * * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Backend Health Endpoint (Multiple attempts)
+        run: |
+          echo "Pinging backend to keep it alive..."
+
+          # First ping - wake up the server
+          response1=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 https://fnworks-dev-backend-th12.onrender.com/health || echo "000")
+          echo "First ping response: $response1"
+
+          # Wait 5 seconds for server to fully warm up
+          sleep 5
+
+          # Second ping - confirm server is responding
+          response2=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 https://fnworks-dev-backend-th12.onrender.com/health || echo "000")
+          echo "Second ping response: $response2"
+
+          if [ "$response2" -eq 200 ]; then
+            echo "Backend is alive and responding"
+          else
+            echo "Backend may be slow to start or having issues"
+          fi
+
+      - name: Verify Backend Response
+        run: |
+          echo "Verifying backend response content..."
+          curl -s --max-time 30 https://fnworks-dev-backend-th12.onrender.com/health | jq '.' || echo "Could not parse response"
