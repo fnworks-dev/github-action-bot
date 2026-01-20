@@ -19,6 +19,22 @@ This public repository is used to run GitHub Actions with unlimited free minutes
 - **Purpose**: Pings the FNworks backend health endpoint to prevent Render free tier from spinning down the service
 - **Target**: `https://fnworks-dev-backend-th12.onrender.com/health`
 
+### Leadgen Bot (Reddit + Hacker News)
+
+**File**: `.github/workflows/leadgen-bot.yml`
+
+- **Schedule**: Every 2 hours
+- **Purpose**: Scrapes Reddit and Hacker News for potential leads, scores them with AI, saves to database, and sends Discord notifications for high-quality leads
+- **Source Code**: `leadgen-bot/`
+
+### Leadgen Twitter Bot
+
+**File**: `.github/workflows/leadgen-twitter-bot.yml`
+
+- **Schedule**: Every 4 hours
+- **Purpose**: Scrapes Twitter/X for potential leads using TwitterAPI.io, scores them with AI, saves to database, and sends Discord notifications
+- **Source Code**: `leadgen-bot/`
+
 ## Why This Repository Exists
 
 GitHub Actions provides **unlimited free minutes** for public repositories, but private repositories are limited to 2,000 minutes/month.
@@ -31,5 +47,6 @@ By hosting automation workflows in this public repository, we can:
 ## Security
 
 - This repository contains **no sensitive code** or credentials
-- All workflows only ping public endpoints
-- Secrets and API keys remain in the private repositories
+- All secrets are stored as GitHub repository secrets
+- Database operations use environment variables only
+

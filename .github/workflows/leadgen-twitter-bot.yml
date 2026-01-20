@@ -1,0 +1,41 @@
+name: Leadgen Twitter Bot
+
+on:
+  schedule:
+    # Run every 4 hours
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+
+jobs:
+  run-twitter-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: ./leadgen-bot
+        run: npm ci
+
+      - name: Build
+        working-directory: ./leadgen-bot
+        run: npm run build
+
+      - name: Run Twitter Lead Bot
+        working-directory: ./leadgen-bot
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          MIN_SCORE_THRESHOLD: '6'
+          TWITTERAPI_KEY: ${{ secrets.TWITTERAPI_KEY }}
+          SOURCES: 'twitter'
+        run: npm start
