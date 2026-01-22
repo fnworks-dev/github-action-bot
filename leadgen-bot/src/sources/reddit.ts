@@ -1,6 +1,7 @@
 import Parser from 'rss-parser';
 import { config } from '../config.js';
 import type { RawPost } from '../types.js';
+import { createHash } from 'crypto';
 
 // Max age for posts (24 hours)
 const MAX_POST_AGE_MS = 24 * 60 * 60 * 1000;
@@ -58,7 +59,12 @@ async function fetchSubreddit(subreddit: string): Promise<RawPost[]> {
 // Extract Reddit post ID from URL
 function extractRedditId(url: string): string {
     const match = url.match(/\/comments\/([a-z0-9]+)/i);
-    return match ? match[1] : url;
+    if (match) return match[1];
+
+    // Safe fallback: use hash instead of raw URL to avoid special characters
+    // that could cause SQL parameter issues with Turso
+    const hash = createHash('sha256').update(url).digest('hex');
+    return `reddit_${hash.substring(0, 12)}`; // First 12 chars is sufficient uniqueness
 }
 
 // Check if post matches keywords, passes negative filters, and is fresh

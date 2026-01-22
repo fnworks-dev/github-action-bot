@@ -1,8 +1,56 @@
-import { createClient, type Client } from '@libsql/client';
+import { createClient, type Client, LibsqlError } from '@libsql/client';
 import { config } from '../config.js';
 import type { Lead, RawPost, LeadStatus } from '../types.js';
 
 let client: Client | null = null;
+
+// Retry configuration
+interface RetryOptions {
+    maxAttempts: number;
+    delayMs: number;
+    operation: string;
+}
+
+/**
+ * Retry wrapper for database operations with exponential backoff.
+ * Retries on SERVER_ERROR from Turso (transient issues).
+ */
+async function retryWithBackoff<T>(
+    fn: () => Promise<T>,
+    options: RetryOptions
+): Promise<T> {
+    const { maxAttempts, delayMs, operation } = options;
+    let lastError: Error | undefined;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            return await fn();
+        } catch (error) {
+            lastError = error as Error;
+
+            // Check if error is a retryable Turso server error
+            const isRetryable =
+                error instanceof LibsqlError &&
+                error.code === 'SERVER_ERROR';
+
+            // Don't retry if: max attempts reached or error is not retryable
+            if (attempt === maxAttempts || !isRetryable) {
+                console.error(
+                    `❌ ${operation} failed after ${attempt} attempt(s):`,
+                    error
+                );
+                throw error;
+            }
+
+            console.warn(
+                `⚠️ ${operation} failed (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`
+            );
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+    }
+
+    throw lastError!;
+}
 
 export function getDb(): Client {
     if (!client) {
@@ -16,11 +64,14 @@ export function getDb(): Client {
 
 // Initialize database schema
 export async function initDb(): Promise<void> {
-    const db = getDb();
+    await retryWithBackoff(
+        async () => {
+            const db = getDb();
 
-    // Use batch to create table and indexes
-    await db.batch([
-        `CREATE TABLE IF NOT EXISTS leads (
+            // Use batch to create table and indexes
+            await db.batch(
+                [
+                    `CREATE TABLE IF NOT EXISTS leads (
           id TEXT PRIMARY KEY,
           source TEXT NOT NULL,
           source_id TEXT NOT NULL,
@@ -40,12 +91,21 @@ export async function initDb(): Promise<void> {
           created_at TEXT DEFAULT CURRENT_TIMESTAMP,
           updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )`,
-        `CREATE INDEX IF NOT EXISTS idx_leads_source ON leads(source, source_id)`,
-        `CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status)`,
-        `CREATE INDEX IF NOT EXISTS idx_leads_created ON leads(created_at)`,
-    ], 'write');
+                    `CREATE INDEX IF NOT EXISTS idx_leads_source ON leads(source, source_id)`,
+                    `CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status)`,
+                    `CREATE INDEX IF NOT EXISTS idx_leads_created ON leads(created_at)`,
+                ],
+                'write'
+            );
 
-    console.log('✅ Database initialized');
+            console.log('✅ Database initialized');
+        },
+        {
+            maxAttempts: 3,
+            delayMs: 60000, // 1 minute (shorter for init)
+            operation: 'initDb',
+        }
+    );
 }
 
 // Check if lead already exists
@@ -53,12 +113,21 @@ export async function leadExists(
     source: string,
     sourceId: string
 ): Promise<boolean> {
-    const db = getDb();
-    const result = await db.execute({
-        sql: 'SELECT 1 FROM leads WHERE source = ? AND source_id = ?',
-        args: [source, sourceId],
-    });
-    return result.rows.length > 0;
+    return retryWithBackoff(
+        async () => {
+            const db = getDb();
+            const result = await db.execute({
+                sql: 'SELECT 1 FROM leads WHERE source = ? AND source_id = ?',
+                args: [source, sourceId],
+            });
+            return result.rows.length > 0;
+        },
+        {
+            maxAttempts: 3,
+            delayMs: 180000, // 3 minutes
+            operation: `leadExists(source="${source}", sourceId="${sourceId}")`,
+        }
+    );
 }
 
 // Insert new lead
@@ -68,46 +137,64 @@ export async function insertLead(
     summary: string | null,
     suggestedReply: string | null
 ): Promise<string> {
-    const db = getDb();
-    const id = crypto.randomUUID();
+    return retryWithBackoff(
+        async () => {
+            const db = getDb();
+            const id = crypto.randomUUID();
 
-    await db.execute({
-        sql: `
+            await db.execute({
+                sql: `
       INSERT INTO leads (
         id, source, source_id, source_url, title, content, author, subreddit,
         score, summary, suggested_reply, posted_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
-        args: [
-            id,
-            post.source,
-            post.sourceId,
-            post.sourceUrl,
-            post.title,
-            post.content,
-            post.author,
-            post.subreddit || null,
-            score,
-            summary,
-            suggestedReply,
-            post.postedAt,
-        ],
-    });
+                args: [
+                    id,
+                    post.source,
+                    post.sourceId,
+                    post.sourceUrl,
+                    post.title,
+                    post.content,
+                    post.author,
+                    post.subreddit || null,
+                    score,
+                    summary,
+                    suggestedReply,
+                    post.postedAt,
+                ],
+            });
 
-    return id;
+            return id;
+        },
+        {
+            maxAttempts: 3,
+            delayMs: 180000, // 3 minutes
+            operation: 'insertLead',
+        }
+    );
 }
 
 // Mark lead as notified
 export async function markNotified(id: string): Promise<void> {
-    const db = getDb();
-    await db.execute({
-        sql: `
+    await retryWithBackoff(
+        async () => {
+            const db = getDb();
+            await db.execute({
+                sql: `
       UPDATE leads
       SET status = 'notified', notified_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `,
-        args: [id],
-    });
+                args: [id],
+            });
+        },
+        {
+            maxAttempts: 3,
+            delayMs: 180000, // 3 minutes
+            operation: 'markNotified',
+        }
+    );
 }
 
 // Update lead status
@@ -115,15 +202,24 @@ export async function updateLeadStatus(
     id: string,
     status: LeadStatus
 ): Promise<void> {
-    const db = getDb();
-    await db.execute({
-        sql: `
+    await retryWithBackoff(
+        async () => {
+            const db = getDb();
+            await db.execute({
+                sql: `
       UPDATE leads
       SET status = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `,
-        args: [status, id],
-    });
+                args: [status, id],
+            });
+        },
+        {
+            maxAttempts: 3,
+            delayMs: 180000, // 3 minutes
+            operation: 'updateLeadStatus',
+        }
+    );
 }
 
 // Get all leads with optional filter
