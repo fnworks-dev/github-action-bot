@@ -21,6 +21,16 @@ Scoring criteria:
 - 4-5: Vague request, might just be exploring
 - 1-3: Not relevant, already solved, spam, or not looking for developers
 
+EXCLUDE (score 1-3) - Not developer work:
+- Video editing, clipping, content creation, "clipper"
+- Surveys, studies, research participants
+- Game testing, "test games"
+- Simple microtasks, data entry
+- Sales, telemarketing, call closing
+- Social media management, Reddit posting/commenting
+- Watching content for pay (sports, videos)
+- Transcription, virtual assistant, customer support
+
 POST:
 Title: {title}
 Content: {content}
@@ -67,7 +77,6 @@ function keywordScore(post: RawPost): ScoringResult {
         { pattern: 'need developer', reason: 'Needs developer' },
         { pattern: 'technical cofounder', reason: 'Seeking cofounder' },
         { pattern: 'tech co-founder', reason: 'Seeking cofounder' },
-        { pattern: '[hiring]', reason: 'Tagged hiring' },
     ];
 
     let highMatches = 0;
@@ -99,12 +108,67 @@ function keywordScore(post: RawPost): ScoringResult {
         }
     }
 
-    // Negative signals (-2 each)
-    const negativeSignals = ['[for hire]', 'i am a developer', 'i built', 'just launched'];
-    for (const signal of negativeSignals) {
-        if (text.includes(signal)) {
-            score -= 2;
-            break;
+    // Negative signals for non-developer jobs (-3 to -5 points)
+    const nonDevJobs = [
+        // Video editing, clipping, content creation
+        { pattern: 'clipping', penalty: 4, reason: 'Video clipping' },
+        { pattern: 'clipper', penalty: 4, reason: 'Video clipping' },
+        { pattern: 'video editor', penalty: 4, reason: 'Video editing' },
+        { pattern: 'content creator', penalty: 3, reason: 'Content creation' },
+        { pattern: 'youtuber', penalty: 3, reason: 'YouTube content' },
+        { pattern: 'edit video', penalty: 4, reason: 'Video editing' },
+
+        // Surveys, studies, research participants
+        { pattern: 'survey', penalty: 4, reason: 'Survey/Research' },
+        { pattern: 'study participant', penalty: 4, reason: 'Study participant' },
+        { pattern: 'user testing', penalty: 3, reason: 'User testing' },
+        { pattern: 'test games', penalty: 4, reason: 'Game testing' },
+
+        // Simple microtasks
+        { pattern: 'simple tasks', penalty: 4, reason: 'Simple tasks' },
+        { pattern: 'microtasks', penalty: 4, reason: 'Microtasks' },
+        { pattern: '$4 per task', penalty: 5, reason: 'Microtask pricing' },
+        { pattern: 'quick task', penalty: 3, reason: 'Quick tasks' },
+
+        // Sales, telemarketing
+        { pattern: 'sales representative', penalty: 4, reason: 'Sales role' },
+        { pattern: 'telemarketing', penalty: 4, reason: 'Telemarketing' },
+        { pattern: 'call closing', penalty: 4, reason: 'Sales calls' },
+        { pattern: 'sales call', penalty: 4, reason: 'Sales calls' },
+
+        // Data entry, transcription
+        { pattern: 'data entry', penalty: 4, reason: 'Data entry' },
+        { pattern: 'transcription', penalty: 4, reason: 'Transcription' },
+        { pattern: 'transcribe', penalty: 4, reason: 'Transcription' },
+
+        // Social media management
+        { pattern: 'social media manager', penalty: 3, reason: 'Social media' },
+        { pattern: 'reddit post', penalty: 4, reason: 'Reddit posting' },
+        { pattern: 'reddit comment', penalty: 4, reason: 'Reddit commenting' },
+        { pattern: 'reddit account', penalty: 4, reason: 'Reddit account' },
+
+        // Watching content for pay
+        { pattern: 'watch basketball', penalty: 5, reason: 'Watching content' },
+        { pattern: 'watch videos', penalty: 4, reason: 'Watching videos' },
+        { pattern: 'get paid to watch', penalty: 5, reason: 'Watching content' },
+
+        // Other non-dev roles
+        { pattern: 'virtual assistant', penalty: 3, reason: 'Virtual assistant' },
+        { pattern: 'customer support', penalty: 3, reason: 'Customer support' },
+        { pattern: 'game tester', penalty: 4, reason: 'Game testing' },
+
+        // Self-promotion / developer posts
+        { pattern: '[for hire]', penalty: 5, reason: 'For hire post' },
+        { pattern: 'i am a developer', penalty: 5, reason: 'Developer self-post' },
+        { pattern: 'i built', penalty: 3, reason: 'Self-promotion' },
+        { pattern: 'just launched', penalty: 3, reason: 'Self-promotion' },
+    ];
+
+    for (const job of nonDevJobs) {
+        if (text.includes(job.pattern)) {
+            score -= job.penalty;
+            reasons.push(job.reason);
+            break; // Only apply the first match to avoid over-penalizing
         }
     }
 

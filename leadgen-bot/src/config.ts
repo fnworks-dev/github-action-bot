@@ -127,6 +127,36 @@ export const config = {
         'check out my',
         'feedback on my',
         'roast my',
+
+        // Non-developer jobs - Video editing
+        'clipping',
+        'clipper',
+        'video editor',
+
+        // Non-developer jobs - Surveys and studies
+        'survey',
+        'study participant',
+
+        // Non-developer jobs - Game testing
+        'test games',
+        'game tester',
+
+        // Non-developer jobs - Simple microtasks
+        'simple tasks',
+        'microtasks',
+
+        // Non-developer jobs - Sales
+        'sales representative',
+        'telemarketing',
+
+        // Non-developer jobs - Watching content
+        'watch basketball',
+        'watch videos',
+
+        // Non-developer jobs - Social media
+        'reddit post',
+        'reddit comment',
+        'reddit account',
     ],
 };
 
