@@ -89,13 +89,30 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'art commission', 'commission artist',
         ],
         subreddits: [
-            'forhire',
+            // Hiring-focused (primary)
+            'HungryArtists',
             'artcommissions',
             'drawforhire',
+            'forhire',
+            'freelance_forhire',
+            'design',
+            'DesignJobs',
+            'logo_requests',
             'gameDevClassifieds',
+
+            // Art communities (secondary - may have hiring posts)
             'graphic_design',
             'illustration',
             'UIUCDesign',
+            'ArtistLounge',
+            'DigitalPainting',
+            'fantasyartists',
+            'characterdrawing',
+            'GameArtHQ',
+            'imadeathing',
+            'UnitLost',
+            'conceptart',
+            'specart',
         ],
     },
 
@@ -119,11 +136,23 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'voice audition', 'voice casting',
         ],
         subreddits: [
+            // Hiring-focused (primary)
             'forhire',
             'VAforhire',
             'VoiceActing',
             'recordthis',
             'audiobookcreation',
+            'freelance_forhire',
+
+            // Voice communities (secondary - may have hiring posts)
+            'audiobooks',
+            'vo',
+            'voiceover',
+            'talent',
+            'casting',
+            'AudiobookBillingual',
+            'audiobook',
+            'voiceacting101',
         ],
     },
 
@@ -150,12 +179,27 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'looking for editor', 'need editor',
         ],
         subreddits: [
+            // Hiring-focused (primary)
             'forhire',
             'VideoEditing',
             'editors',
+            'freelance_forhire',
+            'creatorservices',
+            'PostProduction',
+            'VideoProduction',
+            'VideoServices',
+            'gameDevClassifieds',
+
+            // Video communities (secondary - may have hiring posts)
             'NewTubers',
             'youtube',
-            ' filmmakers',
+            'filmmakers',
+            'MotionDesign',
+            'vfx',
+            'youtubers',
+            'SmallYTChannel',
+            'youtubeviews',
+            'youtube_startups',
         ],
     },
 
@@ -182,12 +226,25 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'looking for copywriter', 'need copywriter',
         ],
         subreddits: [
+            // Hiring-focused (primary)
             'forhire',
             'freelanceWriters',
             'copywriting',
+            'freelance_forhire',
+            'gameDevClassifieds',
+
+            // Writing communities (secondary - may have hiring posts)
             'writing',
             'screenwriting',
-            'gameDevClassifieds',
+            'writers',
+            'WritersGroup',
+            'ContentMarketing',
+            'scriptwriting',
+            'ghostwriting',
+            'technicalwriting',
+            'blogwriting',
+            'editmywriting',
+            'writingclub',
         ],
     },
 
@@ -214,12 +271,26 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'hiring composer', 'composer needed',
         ],
         subreddits: [
+            // Hiring-focused (primary)
             'forhire',
             'audioengineering',
             'SoundDesign',
             'GameAudio',
             'composers',
             'thisismycomposer',
+            'freelance_forhire',
+            'gameDevClassifieds',
+
+            // Audio communities (secondary - may have hiring posts)
+            'audio',
+            'musicproduction',
+            'mixing',
+            'mastering',
+            'EDMproduction',
+            'beatmaker',
+            'producers',
+            'WeAreTheMusicMakers',
+            'synthrecipes',
         ],
     },
 
@@ -241,10 +312,18 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'hiring qa', 'qa needed',
         ],
         subreddits: [
+            // Hiring-focused (primary)
             'forhire',
             'qa',
-            'gameDevClassifieds',
             'testing',
+            'gameDevClassifieds',
+            'freelance_forhire',
+
+            // QA communities (secondary - may have hiring posts)
+            'QualityAssurance',
+            'testautomation',
+            'manualtesting',
+            'gamedevtesting',
         ],
     },
 
@@ -270,10 +349,19 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'hiring virtual assistant', 'va needed',
         ],
         subreddits: [
+            // Hiring-focused (primary)
             'forhire',
             'virtualassistant',
             'freelance_forhire',
             'admin',
+            'gameDevClassifieds',
+
+            // VA communities (secondary - may have hiring posts)
+            'virtual_assistant',
+            'administrative',
+            'remotework',
+            'hireme',
+            'jobsbit4',
         ],
     },
 };

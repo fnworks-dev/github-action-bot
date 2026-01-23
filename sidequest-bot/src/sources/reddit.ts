@@ -1,6 +1,7 @@
 import Parser from 'rss-parser';
 import { config, shouldFilterPost, getAllSubreddits } from '../config.js';
 import { categorizePost, generateSummary } from '../ai/categorizer.js';
+import { filterByHiringIntent } from '../ai/intent-detector.js';
 import type { RawPost, Profession } from '../types.js';
 
 // Enriched post with professions
@@ -107,11 +108,16 @@ export async function fetchRedditPosts(): Promise<EnrichedPost[]> {
     const validPosts = freshPosts.filter(post => !shouldFilterPost(post.title, post.content || ''));
     console.log(`🚫 ${freshPosts.length - validPosts.length} posts filtered by negative filters`);
 
+    // Step 3.5: Detect hiring intent (keyword + AI)
+    console.log(`💼 Detecting hiring intent for ${validPosts.length} posts...`);
+    const jobPosts = await filterByHiringIntent(validPosts);
+    console.log(`💼 ${jobPosts.length} posts show hiring intent (filtered out ${validPosts.length - jobPosts.length} non-job posts)`);
+
     // Step 4: Categorize remaining posts by profession using AI
-    console.log(`🏷️ Categorizing ${validPosts.length} posts by profession...`);
+    console.log(`🏷️ Categorizing ${jobPosts.length} posts by profession...`);
     const enrichedPosts: EnrichedPost[] = [];
 
-    for (const post of validPosts) {
+    for (const post of jobPosts) {
         try {
             const categorization = await categorizePost(post.title, post.content);
             const summary = await generateSummary(post.title, post.content);
@@ -198,11 +204,16 @@ export async function fetchPostsByProfession(professionKey: string): Promise<Enr
 
     console.log(`✂️ Filtered to ${validPosts.length} valid posts for ${profession.name}`);
 
+    // Detect hiring intent
+    console.log(`💼 Detecting hiring intent for ${validPosts.length} posts...`);
+    const jobPosts = await filterByHiringIntent(validPosts);
+    console.log(`💼 ${jobPosts.length} posts show hiring intent for ${profession.name}`);
+
     // Categorize with AI (will confirm the profession match)
-    console.log(`🏷️ Categorizing ${validPosts.length} posts...`);
+    console.log(`🏷️ Categorizing ${jobPosts.length} posts...`);
     const enrichedPosts: EnrichedPost[] = [];
 
-    for (const post of validPosts) {
+    for (const post of jobPosts) {
         try {
             const categorization = await categorizePost(post.title, post.content);
             const summary = await generateSummary(post.title, post.content);

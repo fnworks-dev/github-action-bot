@@ -37,6 +37,14 @@ export interface CategorizationResult {
     confidence: number;
 }
 
+// Intent detection result - determines if a post is actually offering work
+export interface IntentDetectionResult {
+    isJob: boolean;
+    confidence: number;
+    reason?: string;
+    method: 'ai' | 'keyword';
+}
+
 // Job post stored in database
 export interface JobPost {
     id: string;
