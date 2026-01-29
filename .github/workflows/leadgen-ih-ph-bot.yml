@@ -2,8 +2,8 @@ name: Leadgen Bot (IndieHackers + ProductHunt)
 
 on:
   schedule:
-    # Run every 4 hours (safer for scraping sources)
-    - cron: '0 */4 * * *'
+    # Run every 6 hours (safest for scraping sources)
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 jobs:
