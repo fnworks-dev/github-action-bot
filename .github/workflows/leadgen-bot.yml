@@ -1,9 +1,9 @@
-name: Leadgen Bot (Reddit + HN)
+name: Leadgen Bot (All Sources)
 
 on:
   schedule:
-    # Run every 2 hours
-    - cron: '0 */2 * * *'
+    # Run every 4 hours
+    - cron: '0 */4 * * *'
   workflow_dispatch:
 
 jobs:
@@ -27,7 +27,7 @@ jobs:
         working-directory: ./leadgen-bot
         run: npm run build
 
-      - name: Run Lead Bot (Reddit + HN)
+      - name: Run Lead Bot (All Sources)
         working-directory: ./leadgen-bot
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
@@ -36,5 +36,5 @@ jobs:
           GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           MIN_SCORE_THRESHOLD: '6'
-          SOURCES: 'reddit,hackernews'
+          SOURCES: 'reddit,hackernews,indiehackers,producthunt'
         run: npm start
