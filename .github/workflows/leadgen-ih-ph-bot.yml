@@ -1,8 +1,8 @@
-name: Leadgen Bot (IndieHackers + ProductHunt)
+name: Leadgen Bot (ProductHunt)
 
 on:
   schedule:
-    # Run every 6 hours (safest for scraping sources)
+    # Run every 6 hours (safest for API sources)
     - cron: '0 */6 * * *'
   workflow_dispatch:
 
@@ -27,7 +27,7 @@ jobs:
         working-directory: ./leadgen-bot
         run: npm run build
 
-      - name: Run Lead Bot (IndieHackers + ProductHunt)
+      - name: Run Lead Bot (ProductHunt)
         working-directory: ./leadgen-bot
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
@@ -37,5 +37,5 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           PRODUCTHUNT_API_TOKEN: ${{ secrets.PRODUCTHUNT_API_TOKEN }}
           MIN_SCORE_THRESHOLD: '6'
-          SOURCES: 'indiehackers,producthunt'
+          SOURCES: 'producthunt'
         run: npm start
