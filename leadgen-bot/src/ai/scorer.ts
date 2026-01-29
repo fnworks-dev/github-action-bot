@@ -8,18 +8,31 @@ FNworks specializes in:
 - Web development (React, Next.js, TypeScript)
 - Interactive experiences (3D, data visualization)
 - Custom dashboards and SaaS platforms
+- MVP development for non-technical founders
 
 Target clients: Non-technical founders with $10K-$50K+ budgets who need MVPs built quickly.
+IDEAL LEADS: Project-based work (not employment), cofounder opportunities, MVP builds, ongoing retainer relationships.
 
 Analyze the following post and provide a JSON response with:
 1. "score": 1-10 rating (10 = perfect lead, 1 = not relevant)
 2. "summary": 1-2 sentence summary of what they need
 
 Scoring criteria:
-- 8-10: Clear budget signals, needs web dev, urgent timeline, funded startup
-- 6-7: Needs developer, seems serious, unclear budget
-- 4-5: Vague request, might just be exploring
-- 1-3: Not relevant, already solved, spam, or not looking for developers
+- 9-10: PERFECT LEAD - Project-based (not employment), clear budget, needs MVP/SaaS, non-technical founder, urgency
+- 7-8: STRONG LEAD - Looking for developer, project mentioned, serious inquiry, some budget signals
+- 5-6: MODERATE LEAD - Needs developer but unclear scope or budget
+- 3-4: Vague request, might just be exploring
+- 1-2: Not relevant, already solved, spam, employment (not project-based)
+
+BOOST SCORE for:
+- "MVP", "build", "project", "contract", "freelance", "technical cofounder"
+- Non-technical founder mentioned
+- Budget numbers mentioned ($10K, $20K, etc.)
+- Urgency signals (ASAP, this month, launch soon)
+
+REDUCE SCORE for:
+- Employment signals (full-time, join our team, salary, benefits)
+- Equity-only cofounder (no cash budget)
 
 EXCLUDE (score 1-3) - Not developer work:
 - Video editing, clipping, content creation, "clipper"
@@ -77,6 +90,10 @@ function keywordScore(post: RawPost): ScoringResult {
         { pattern: 'need developer', reason: 'Needs developer' },
         { pattern: 'technical cofounder', reason: 'Seeking cofounder' },
         { pattern: 'tech co-founder', reason: 'Seeking cofounder' },
+        { pattern: 'build mvp', reason: 'MVP build' },
+        { pattern: 'need mvp', reason: 'MVP needed' },
+        { pattern: 'freelance developer', reason: 'Freelance project' },
+        { pattern: 'contract developer', reason: 'Contract work' },
     ];
 
     let highMatches = 0;
@@ -107,6 +124,20 @@ function keywordScore(post: RawPost): ScoringResult {
             break;
         }
     }
+
+    // Employment signals - these are NOT project-based (-5 points)
+    const employmentSignals = [
+        { pattern: 'full time', penalty: 5, reason: 'Full-time employment' },
+        { pattern: 'full-time', penalty: 5, reason: 'Full-time employment' },
+        { pattern: 'join our team', penalty: 5, reason: 'Team hiring' },
+        { pattern: 'salary', penalty: 5, reason: 'Employment' },
+        { pattern: 'benefits', penalty: 4, reason: 'Employment benefits' },
+        { pattern: 'on-site', penalty: 3, reason: 'On-site employment' },
+        { pattern: 'onsite', penalty: 3, reason: 'On-site employment' },
+        { pattern: 'in-house', penalty: 4, reason: 'In-house employment' },
+        { pattern: 'permanent', penalty: 5, reason: 'Permanent position' },
+        { pattern: 'equity only', penalty: 4, reason: 'Equity only (no cash)' },
+    ];
 
     // Negative signals for non-developer jobs (-3 to -5 points)
     const nonDevJobs = [
@@ -163,6 +194,15 @@ function keywordScore(post: RawPost): ScoringResult {
         { pattern: 'i built', penalty: 3, reason: 'Self-promotion' },
         { pattern: 'just launched', penalty: 3, reason: 'Self-promotion' },
     ];
+
+    // Apply employment signal penalties
+    for (const signal of employmentSignals) {
+        if (text.includes(signal.pattern)) {
+            score -= signal.penalty;
+            reasons.push(signal.reason);
+            break;
+        }
+    }
 
     for (const job of nonDevJobs) {
         if (text.includes(job.pattern)) {

@@ -36,7 +36,7 @@ export type LeadStatus =
 
 // Raw post from RSS/API
 export interface RawPost {
-    source: 'reddit' | 'hackernews' | 'indiehackers' | 'apify' | 'lobstr' | 'x';
+    source: 'reddit' | 'hackernews' | 'indiehackers' | 'producthunt' | 'apify' | 'lobstr' | 'x';
     sourceId: string;
     sourceUrl: string;
     title: string;

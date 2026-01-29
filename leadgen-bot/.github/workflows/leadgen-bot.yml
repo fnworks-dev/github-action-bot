@@ -1,0 +1,78 @@
+name: Leadgen Bot
+
+on:
+  # Run every 6 hours
+  schedule:
+    - cron: '0 */6 * * *'
+  
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      sources:
+        description: 'Sources to run (comma-separated: reddit,hackernews,twitter,indiehackers,producthunt)'
+        required: false
+        default: 'reddit,hackernews,twitter,indiehackers,producthunt'
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Run Leadgen Bot
+        env:
+          # Database
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          
+          # Discord
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          
+          # AI
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+          
+          # Twitter/X Configuration
+          TWITTER_SOURCE: ${{ secrets.TWITTER_SOURCE || 'api' }}
+          TWITTERAPI_KEY: ${{ secrets.TWITTERAPI_KEY }}
+          TWITTER_ENABLED: ${{ secrets.TWITTER_ENABLED || 'false' }}
+          
+          # ProductHunt
+          PRODUCTHUNT_API_TOKEN: ${{ secrets.PRODUCTHUNT_API_TOKEN }}
+          
+          # Scoring & Sources
+          MIN_SCORE_THRESHOLD: ${{ secrets.MIN_SCORE_THRESHOLD || '6' }}
+          SOURCES: ${{ inputs.sources || secrets.SOURCES || 'reddit,hackernews,indiehackers' }}
+        run: npm start
+
+      - name: Update last run timestamp
+        if: always()
+        run: date -u +%Y-%m-%dT%H:%M:%SZ > .last_run
+
+      - name: Commit last run timestamp
+        if: always()
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .last_run
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update last run timestamp [skip ci]"
+          git push

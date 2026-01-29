@@ -1,8 +1,12 @@
+import 'dotenv/config';
 import { config, validateConfig } from './config.js';
 import { initDb, leadExists, insertLead, markNotified } from './db/turso.js';
 import { fetchRedditPosts } from './sources/reddit.js';
 import { fetchHNPosts } from './sources/hackernews.js';
 import { fetchTwitterApiPosts } from './sources/twitterapi.js';
+import { fetchTwitterDiyPosts } from './sources/twitter-diy.js';
+import { fetchIndieHackersPosts } from './sources/indiehackers.js';
+import { fetchProductHuntPosts } from './sources/producthunt.js';
 import { scorePost } from './ai/scorer.js';
 import {
     sendDiscordNotification,
@@ -79,7 +83,18 @@ async function main() {
             sourceFetchers.push({ name: 'HackerNews', fetcher: fetchHNPosts });
         }
         if (enabledSources.includes('twitter') || enabledSources.includes('x')) {
-            sourceFetchers.push({ name: 'Twitter', fetcher: fetchTwitterApiPosts });
+            // Choose Twitter source based on configuration
+            if (config.twitter.source === 'diy') {
+                sourceFetchers.push({ name: 'Twitter (DIY)', fetcher: fetchTwitterDiyPosts });
+            } else {
+                sourceFetchers.push({ name: 'Twitter (API)', fetcher: fetchTwitterApiPosts });
+            }
+        }
+        if (enabledSources.includes('indiehackers') || enabledSources.includes('ih')) {
+            sourceFetchers.push({ name: 'IndieHackers', fetcher: fetchIndieHackersPosts });
+        }
+        if (enabledSources.includes('producthunt') || enabledSources.includes('ph')) {
+            sourceFetchers.push({ name: 'ProductHunt', fetcher: fetchProductHuntPosts });
         }
 
         if (sourceFetchers.length === 0) {

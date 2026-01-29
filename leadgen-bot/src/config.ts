@@ -23,6 +23,26 @@ export const config = {
     // Scoring
     minScoreThreshold: parseInt(process.env.MIN_SCORE_THRESHOLD || '6', 10),
 
+    // Twitter/X Configuration
+    twitter: {
+        // Source selection: 'api' (TwitterAPI.io) or 'diy' (local scraper)
+        source: (process.env.TWITTER_SOURCE || 'diy') as 'api' | 'diy',
+        
+        // TwitterAPI.io configuration (for 'api' source)
+        api: {
+            enabled: !!process.env.TWITTERAPI_KEY,
+            apiKey: process.env.TWITTERAPI_KEY || '',
+        },
+        
+        // DIY Scraper configuration (for 'diy' source)
+        diy: {
+            enabled: process.env.TWITTER_ENABLED?.toLowerCase() === 'true' || process.env.TWITTER_SOURCE === 'diy',
+            cookiesPath: process.env.TWITTER_COOKIES_PATH || './cookies/twitter_session.json',
+            searchHours: parseInt(process.env.TWITTER_SEARCH_HOURS || '24', 10),
+            maxResults: parseInt(process.env.TWITTER_MAX_RESULTS || '20', 10),
+        },
+    },
+
     // Reddit subreddits to monitor (focused on hiring intent)
     subreddits: [
         // High intent - people looking for developers
