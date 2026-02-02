@@ -1,211 +1,216 @@
 // Configuration loaded from environment variables
 export const config = {
-    // Turso Database
-    turso: {
-        url: process.env.TURSO_DATABASE_URL || '',
-        authToken: process.env.TURSO_AUTH_TOKEN || '',
+  // Turso Database
+  turso: {
+    url: process.env.TURSO_DATABASE_URL || "",
+    authToken: process.env.TURSO_AUTH_TOKEN || "",
+  },
+
+  // AI (Gemini or GLM fallback)
+  ai: {
+    geminiKey: process.env.GEMINI_API_KEY || "",
+    geminiUrl:
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+    glmKey: process.env.GLM_API_KEY || "",
+    // Anthropic-compatible endpoint for GLM Coding Plan
+    glmUrl: "https://api.z.ai/api/anthropic/v1/messages",
+  },
+
+  // Discord
+  discord: {
+    webhookUrl: process.env.DISCORD_WEBHOOK_URL || "",
+    twitterHealthWebhookUrl: process.env.TWITTER_HEALTH_WEBHOOK_URL || "",
+  },
+
+  // Scoring
+  minScoreThreshold: parseInt(process.env.MIN_SCORE_THRESHOLD || "6", 10),
+
+  // Twitter/X Configuration
+  twitter: {
+    // Source selection: 'api' (TwitterAPI.io) or 'diy' (local scraper)
+    source: (process.env.TWITTER_SOURCE || "diy") as "api" | "diy",
+
+    // TwitterAPI.io configuration (for 'api' source)
+    api: {
+      enabled: !!process.env.TWITTERAPI_KEY,
+      apiKey: process.env.TWITTERAPI_KEY || "",
     },
 
-    // AI (Gemini or GLM fallback)
-    ai: {
-        geminiKey: process.env.GEMINI_API_KEY || '',
-        geminiUrl: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
-        glmKey: process.env.GLM_API_KEY || '',
-        // Anthropic-compatible endpoint for GLM Coding Plan
-        glmUrl: 'https://api.z.ai/api/anthropic/v1/messages',
+    // DIY Scraper configuration (for 'diy' source)
+    diy: {
+      enabled:
+        process.env.TWITTER_ENABLED?.toLowerCase() === "true" ||
+        process.env.TWITTER_SOURCE === "diy",
+      cookiesPath:
+        process.env.TWITTER_COOKIES_PATH || "./cookies/twitter_session.json",
+      searchHours: parseInt(process.env.TWITTER_SEARCH_HOURS || "24", 10),
+      maxResults: parseInt(process.env.TWITTER_MAX_RESULTS || "20", 10),
     },
+  },
 
-    // Discord
-    discord: {
-        webhookUrl: process.env.DISCORD_WEBHOOK_URL || '',
-    },
+  // Reddit subreddits to monitor (focused on hiring intent)
+  subreddits: [
+    // High intent - people looking for developers
+    "startups",
+    "cofounder",
+    "forhire",
+    "freelance_forhire",
+    "Entrepreneur",
+    "EntrepreneurRideAlong",
+    "SaaS",
+    "smallbusiness",
+    "indiehackers",
+    "startup",
+    "hwstartups",
+    "Startup_Ideas",
 
-    // Scoring
-    minScoreThreshold: parseInt(process.env.MIN_SCORE_THRESHOLD || '6', 10),
+    // Non-technical founders (high quality leads)
+    "nocode",
+    "webdev",
+  ],
 
-    // Twitter/X Configuration
-    twitter: {
-        // Source selection: 'api' (TwitterAPI.io) or 'diy' (local scraper)
-        source: (process.env.TWITTER_SOURCE || 'diy') as 'api' | 'diy',
-        
-        // TwitterAPI.io configuration (for 'api' source)
-        api: {
-            enabled: !!process.env.TWITTERAPI_KEY,
-            apiKey: process.env.TWITTERAPI_KEY || '',
-        },
-        
-        // DIY Scraper configuration (for 'diy' source)
-        diy: {
-            enabled: process.env.TWITTER_ENABLED?.toLowerCase() === 'true' || process.env.TWITTER_SOURCE === 'diy',
-            cookiesPath: process.env.TWITTER_COOKIES_PATH || './cookies/twitter_session.json',
-            searchHours: parseInt(process.env.TWITTER_SEARCH_HOURS || '24', 10),
-            maxResults: parseInt(process.env.TWITTER_MAX_RESULTS || '20', 10),
-        },
-    },
+  // Keywords - INTENT FOCUSED (someone actively looking/hiring)
+  keywords: [
+    // Direct hiring signals
+    "looking for developer",
+    "looking for a developer",
+    "looking for dev",
+    "looking for a dev",
 
-    // Reddit subreddits to monitor (focused on hiring intent)
-    subreddits: [
-        // High intent - people looking for developers
-        'startups',
-        'cofounder',
-        'forhire',
-        'freelance_forhire',
-        'Entrepreneur',
-        'EntrepreneurRideAlong',
-        'SaaS',
-        'smallbusiness',
-        'indiehackers',
-        'startup',
-        'hwstartups',
-        'Startup_Ideas',
+    "need developer",
+    "need a developer",
+    "need dev",
+    "need a dev",
 
-        // Non-technical founders (high quality leads)
-        'nocode',
-        'webdev',
-    ],
+    "hiring developer",
+    "hiring a developer",
 
-    // Keywords - INTENT FOCUSED (someone actively looking/hiring)
-    keywords: [
-        // Direct hiring signals
-        'looking for developer',
-        'looking for a developer',
-        'looking for dev',
-        'looking for a dev',
+    "seeking developer",
+    "seeking a developer",
 
-        'need developer',
-        'need a developer',
-        'need dev',
-        'need a dev',
+    "developer needed",
+    "dev needed",
+    "developer wanted",
 
-        'hiring developer',
-        'hiring a developer',
+    // Cofounder signals
+    "looking for cofounder",
+    "looking for co-founder",
+    "looking for a cofounder",
+    "looking for technical cofounder",
+    "seeking cofounder",
+    "seeking co-founder",
+    "seeking technical cofounder",
+    "need cofounder",
+    "need a cofounder",
+    "need technical cofounder",
+    "need a technical co-founder",
+    "cofounder wanted",
+    "co-founder wanted",
+    "CTO cofounder",
+    "tech cofounder",
 
-        'seeking developer',
-        'seeking a developer',
+    // Build requests
+    "need someone to build",
+    "looking for someone to build",
+    "help me build my",
+    "who can build",
 
-        'developer needed',
-        'dev needed',
-        'developer wanted',
+    // Hiring tags
+    "[Hiring]",
+    "[HIRING]",
 
-        // Cofounder signals
-        'looking for cofounder',
-        'looking for co-founder',
-        'looking for a cofounder',
-        'looking for technical cofounder',
-        'seeking cofounder',
-        'seeking co-founder',
-        'seeking technical cofounder',
-        'need cofounder',
-        'need a cofounder',
-        'need technical cofounder',
-        'need a technical co-founder',
-        'cofounder wanted',
-        'co-founder wanted',
-        'CTO cofounder',
-        'tech cofounder',
+    // Freelance/Agency
+    "looking for agency",
+    "looking for freelancer",
+    "need freelancer",
+    "hire freelancer",
+  ],
 
-        // Build requests
-        'need someone to build',
-        'looking for someone to build',
-        'help me build my',
-        'who can build',
+  // Posts containing these will be SKIPPED (not shown)
+  negativeFilters: [
+    // Self-promotion / For Hire posts
+    "[For Hire]",
+    "[FOR HIRE]",
+    "I am a developer",
+    "I'm a developer",
+    "offering my services",
+    "available for hire",
+    "my portfolio",
+    "hire me",
 
-        // Hiring tags
-        '[Hiring]',
-        '[HIRING]',
+    // Listicle spam
+    "Top 10",
+    "Top 5",
+    "Best of",
+    "Niche ideas",
+    "ideas for",
 
-        // Freelance/Agency
-        'looking for agency',
-        'looking for freelancer',
-        'need freelancer',
-        'hire freelancer',
-    ],
+    // Show-off posts
+    "just launched",
+    "I built",
+    "I created",
+    "check out my",
+    "feedback on my",
+    "roast my",
 
-    // Posts containing these will be SKIPPED (not shown)
-    negativeFilters: [
-        // Self-promotion / For Hire posts
-        '[For Hire]',
-        '[FOR HIRE]',
-        'I am a developer',
-        "I'm a developer",
-        'offering my services',
-        'available for hire',
-        'my portfolio',
-        'hire me',
+    // Non-developer jobs - Video editing
+    "clipping",
+    "clipper",
+    "video editor",
 
-        // Listicle spam
-        'Top 10',
-        'Top 5',
-        'Best of',
-        'Niche ideas',
-        'ideas for',
+    // Non-developer jobs - Surveys and studies
+    "survey",
+    "study participant",
 
-        // Show-off posts
-        'just launched',
-        'I built',
-        'I created',
-        'check out my',
-        'feedback on my',
-        'roast my',
+    // Non-developer jobs - Game testing
+    "test games",
+    "game tester",
 
-        // Non-developer jobs - Video editing
-        'clipping',
-        'clipper',
-        'video editor',
+    // Non-developer jobs - Simple microtasks
+    "simple tasks",
+    "microtasks",
 
-        // Non-developer jobs - Surveys and studies
-        'survey',
-        'study participant',
+    // Non-developer jobs - Sales
+    "sales representative",
+    "telemarketing",
 
-        // Non-developer jobs - Game testing
-        'test games',
-        'game tester',
+    // Non-developer jobs - Watching content
+    "watch basketball",
+    "watch videos",
 
-        // Non-developer jobs - Simple microtasks
-        'simple tasks',
-        'microtasks',
-
-        // Non-developer jobs - Sales
-        'sales representative',
-        'telemarketing',
-
-        // Non-developer jobs - Watching content
-        'watch basketball',
-        'watch videos',
-
-        // Non-developer jobs - Social media
-        'reddit post',
-        'reddit comment',
-        'reddit account',
-    ],
+    // Non-developer jobs - Social media
+    "reddit post",
+    "reddit comment",
+    "reddit account",
+  ],
 };
 
 // Validate required config
 export function validateConfig(): void {
-    const required = [
-        ['TURSO_DATABASE_URL', config.turso.url],
-        ['TURSO_AUTH_TOKEN', config.turso.authToken],
-        ['DISCORD_WEBHOOK_URL', config.discord.webhookUrl],
-    ];
+  const required = [
+    ["TURSO_DATABASE_URL", config.turso.url],
+    ["TURSO_AUTH_TOKEN", config.turso.authToken],
+    ["DISCORD_WEBHOOK_URL", config.discord.webhookUrl],
+  ];
 
-    const missing = required.filter(([_, value]) => !value);
+  const missing = required.filter(([_, value]) => !value);
 
-    if (!config.ai.geminiKey && !config.ai.glmKey) {
-        missing.push(['GEMINI_API_KEY or GLM_API_KEY', '']);
-    }
+  if (!config.ai.geminiKey && !config.ai.glmKey) {
+    missing.push(["GEMINI_API_KEY or GLM_API_KEY", ""]);
+  }
 
-    if (missing.length > 0) {
-        throw new Error(
-            `Missing required environment variables: ${missing.map(([name]) => name).join(', ')}`
-        );
-    }
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required environment variables: ${missing.map(([name]) => name).join(", ")}`,
+    );
+  }
 }
 
 // Check if post should be filtered out
 export function shouldFilterPost(title: string, content: string): boolean {
-    const text = `${title} ${content || ''}`.toLowerCase();
+  const text = `${title} ${content || ""}`.toLowerCase();
 
-    return config.negativeFilters.some(filter =>
-        text.includes(filter.toLowerCase())
-    );
+  return config.negativeFilters.some((filter) =>
+    text.includes(filter.toLowerCase()),
+  );
 }
