@@ -3,7 +3,7 @@ name: Leadgen Bot (Reddit + HN)
 on:
   schedule:
     # Run every 2 hours
-    - cron: '0 */2 * * *'
+    - cron: "0 */2 * * *"
   workflow_dispatch:
 
 jobs:
@@ -17,7 +17,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: Install dependencies
         working-directory: ./leadgen-bot
@@ -35,6 +35,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          MIN_SCORE_THRESHOLD: '6'
-          SOURCES: 'reddit,hackernews'
+          TWITTER_HEALTH_WEBHOOK_URL: ${{ secrets.TWITTER_HEALTH_WEBHOOK_URL }}
+          MIN_SCORE_THRESHOLD: "6"
+          SOURCES: "reddit,hackernews"
         run: npm start
