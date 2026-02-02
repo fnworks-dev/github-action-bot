@@ -15,7 +15,13 @@
 
 import { hostname } from 'os';
 
-const WEBHOOK_URL = 'https://discord.com/api/webhooks/1467731676376465468/v7VvJGtvNS58wsXWs9ryJdV6Gh1cnhbcbpyv5PsQdfeP9X_1950kojPqrPDscM3fw9rQ';
+const WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
+
+if (!WEBHOOK_URL) {
+    console.error('❌ Error: DISCORD_WEBHOOK_URL environment variable is not set');
+    console.error('   Please set it in your .env file or GitHub Secrets');
+    process.exit(1);
+}
 
 interface Embed {
     title: string;
