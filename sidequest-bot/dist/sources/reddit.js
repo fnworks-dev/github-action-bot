@@ -9,6 +9,7 @@ const REDDIT_CLIENT_ID = process.env.SIDEQUEST_REDDIT_CLIENT_ID || process.env.R
 const REDDIT_CLIENT_SECRET = process.env.SIDEQUEST_REDDIT_CLIENT_SECRET || process.env.REDDIT_CLIENT_SECRET || '';
 let redditAccessToken = null;
 let redditAccessTokenExpiresAt = 0;
+let hasLoggedMissingOauthConfig = false;
 // Create parser with custom headers to avoid 403
 const parser = new Parser({
     headers: {
@@ -112,6 +113,10 @@ async function fetchSubredditJson(subreddit) {
 }
 async function getRedditAccessToken() {
     if (!REDDIT_CLIENT_ID || !REDDIT_CLIENT_SECRET) {
+        if (!hasLoggedMissingOauthConfig) {
+            console.warn('⚠️ Reddit OAuth is not configured. Set SIDEQUEST_REDDIT_CLIENT_ID and SIDEQUEST_REDDIT_CLIENT_SECRET to improve Action-run fetch reliability.');
+            hasLoggedMissingOauthConfig = true;
+        }
         return null;
     }
     if (redditAccessToken && Date.now() < redditAccessTokenExpiresAt - 60_000) {
@@ -138,6 +143,7 @@ async function getRedditAccessToken() {
     redditAccessToken = payload.access_token;
     const expiresIn = Number(payload.expires_in) || 3600;
     redditAccessTokenExpiresAt = Date.now() + expiresIn * 1000;
+    console.log('🔐 Reddit OAuth token acquired');
     return redditAccessToken;
 }
 // Fetch posts from a single subreddit
