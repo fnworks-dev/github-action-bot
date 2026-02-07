@@ -389,7 +389,14 @@ export async function getStats() {
         args: [],
     });
     const professionResult = await db.execute({
-        sql: 'SELECT professions FROM job_posts',
+        sql: `
+            SELECT json_each.value AS profession, COUNT(*) AS count
+            FROM job_posts
+            JOIN json_each(job_posts.professions)
+            WHERE job_posts.professions IS NOT NULL
+              AND json_valid(job_posts.professions) = 1
+            GROUP BY json_each.value
+        `,
         args: [],
     });
     const total = totalResult.rows[0]?.count || 0;
@@ -413,9 +420,12 @@ export async function getStats() {
         'virtual-assistant': 0,
     };
     for (const row of professionResult.rows) {
-        const professions = JSON.parse(row.professions);
-        for (const prof of professions) {
-            byProfession[prof]++;
+        const profession = row.profession;
+        if (!profession) {
+            continue;
+        }
+        if (Object.prototype.hasOwnProperty.call(byProfession, profession)) {
+            byProfession[profession] = Number(row.count) || 0;
         }
     }
     return { total, byStatus, byProfession };
