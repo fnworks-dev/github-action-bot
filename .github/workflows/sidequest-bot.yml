@@ -1,53 +1,14 @@
-name: SideQuest Bot
+name: SideQuest Bot (Legacy)
 
 on:
-  schedule:
-    # Run every 4 hours
-    - cron: '0 */4 * * *'
   workflow_dispatch:
 
 jobs:
-  run-bot:
+  legacy-disabled:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install dependencies
-        working-directory: ./sidequest-bot
-        run: npm ci
-
-      - name: Build
-        working-directory: ./sidequest-bot
-        run: npm run build
-
-      - name: Run SideQuest Bot
-        working-directory: ./sidequest-bot
-        env:
-          TURSO_DATABASE_URL: ${{ secrets.SIDEQUEST_TURSO_URL }}
-          TURSO_AUTH_TOKEN: ${{ secrets.SIDEQUEST_TURSO_TOKEN }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
-          SIDEQUEST_REDDIT_CLIENT_ID: ${{ secrets.SIDEQUEST_REDDIT_CLIENT_ID }}
-          SIDEQUEST_REDDIT_CLIENT_SECRET: ${{ secrets.SIDEQUEST_REDDIT_CLIENT_SECRET }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-          SIDEQUEST_STALE_FAIL_HOURS: 72
-        run: npm start
-
-      - name: SideQuest Run Diagnostics
-        if: always()
-        working-directory: ./sidequest-bot
-        env:
-          TURSO_DATABASE_URL: ${{ secrets.SIDEQUEST_TURSO_URL }}
-          TURSO_AUTH_TOKEN: ${{ secrets.SIDEQUEST_TURSO_TOKEN }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
+      - name: Legacy Workflow Notice
         run: |
-          node -e "const { createClient } = require('@libsql/client'); (async () => { const db = createClient({ url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN }); const result = await db.execute({ sql: 'SELECT id, github_run_id, trigger, status, stage, fetched_count, new_jobs_count, latest_job_created_at_before, latest_job_created_at_after, error_message, started_at, finished_at FROM sidequest_runs WHERE github_run_id = ? ORDER BY started_at DESC LIMIT 1', args: [process.env.GITHUB_RUN_ID] }); const row = result.rows[0] || null; console.log('SIDEQUEST_RUN_DIAGNOSTICS'); console.log(JSON.stringify(row, null, 2)); })().catch((error) => { console.error('DIAGNOSTICS_ERROR', error.message); process.exit(1); });"
+          echo "This legacy SideQuest workflow is intentionally disabled."
+          echo "Use sidequest-bot-01.yml through sidequest-bot-04.yml."
