@@ -35,6 +35,8 @@ jobs:
           TURSO_AUTH_TOKEN: ${{ secrets.SIDEQUEST_TURSO_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+          SIDEQUEST_REDDIT_CLIENT_ID: ${{ secrets.SIDEQUEST_REDDIT_CLIENT_ID }}
+          SIDEQUEST_REDDIT_CLIENT_SECRET: ${{ secrets.SIDEQUEST_REDDIT_CLIENT_SECRET }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           SIDEQUEST_STALE_FAIL_HOURS: 72

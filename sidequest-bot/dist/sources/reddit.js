@@ -5,6 +5,10 @@ import { filterByHiringIntent } from '../ai/intent-detector.js';
 import { analyzeJob } from '../ai/analyzer.js';
 const REDDIT_USER_AGENT = 'script:fnworks.sidequest-bot:v1.1 (by /u/fnworks-dev)';
 const REDDIT_JSON_LIMIT = 25;
+const REDDIT_CLIENT_ID = process.env.SIDEQUEST_REDDIT_CLIENT_ID || process.env.REDDIT_CLIENT_ID || '';
+const REDDIT_CLIENT_SECRET = process.env.SIDEQUEST_REDDIT_CLIENT_SECRET || process.env.REDDIT_CLIENT_SECRET || '';
+let redditAccessToken = null;
+let redditAccessTokenExpiresAt = 0;
 // Create parser with custom headers to avoid 403
 const parser = new Parser({
     headers: {
@@ -61,20 +65,40 @@ function parseRedditListing(subreddit, payload) {
         .filter((post) => post.title.trim().length > 0 && post.sourceUrl.trim().length > 0);
 }
 async function fetchSubredditJson(subreddit) {
-    const endpoints = [
-        `https://api.reddit.com/r/${subreddit}/new?limit=${REDDIT_JSON_LIMIT}&raw_json=1`,
-        `https://www.reddit.com/r/${subreddit}/new.json?limit=${REDDIT_JSON_LIMIT}&raw_json=1`,
-    ];
+    const endpoints = [];
+    const oauthToken = await getRedditAccessToken();
+    if (oauthToken) {
+        endpoints.push({
+            url: `https://oauth.reddit.com/r/${subreddit}/new?limit=${REDDIT_JSON_LIMIT}&raw_json=1`,
+            authToken: oauthToken,
+        });
+    }
+    endpoints.push({
+        url: `https://api.reddit.com/r/${subreddit}/new?limit=${REDDIT_JSON_LIMIT}&raw_json=1`,
+    });
+    endpoints.push({
+        url: `https://www.reddit.com/r/${subreddit}/new.json?limit=${REDDIT_JSON_LIMIT}&raw_json=1`,
+    });
     let lastError = null;
     for (const endpoint of endpoints) {
         try {
-            const response = await fetch(endpoint, {
+            const headers = {
+                'User-Agent': REDDIT_USER_AGENT,
+                'Accept': 'application/json',
+            };
+            if (endpoint.authToken) {
+                headers.Authorization = `Bearer ${endpoint.authToken}`;
+            }
+            const response = await fetch(endpoint.url, {
                 headers: {
-                    'User-Agent': REDDIT_USER_AGENT,
-                    'Accept': 'application/json',
+                    ...headers,
                 },
             });
             if (!response.ok) {
+                if (response.status === 401 && endpoint.authToken) {
+                    redditAccessToken = null;
+                    redditAccessTokenExpiresAt = 0;
+                }
                 throw new Error(`Status code ${response.status}`);
             }
             const payload = await response.json();
@@ -86,34 +110,60 @@ async function fetchSubredditJson(subreddit) {
     }
     throw lastError || new Error('Unknown Reddit JSON fetch error');
 }
+async function getRedditAccessToken() {
+    if (!REDDIT_CLIENT_ID || !REDDIT_CLIENT_SECRET) {
+        return null;
+    }
+    if (redditAccessToken && Date.now() < redditAccessTokenExpiresAt - 60_000) {
+        return redditAccessToken;
+    }
+    const credentials = Buffer.from(`${REDDIT_CLIENT_ID}:${REDDIT_CLIENT_SECRET}`).toString('base64');
+    const body = new URLSearchParams({ grant_type: 'client_credentials' });
+    const response = await fetch('https://www.reddit.com/api/v1/access_token', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Basic ${credentials}`,
+            'User-Agent': REDDIT_USER_AGENT,
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body,
+    });
+    if (!response.ok) {
+        throw new Error(`OAuth token status ${response.status}`);
+    }
+    const payload = await response.json();
+    if (!payload?.access_token) {
+        throw new Error('OAuth token missing in Reddit response');
+    }
+    redditAccessToken = payload.access_token;
+    const expiresIn = Number(payload.expires_in) || 3600;
+    redditAccessTokenExpiresAt = Date.now() + expiresIn * 1000;
+    return redditAccessToken;
+}
 // Fetch posts from a single subreddit
 async function fetchSubreddit(subreddit) {
     try {
-        const url = `https://www.reddit.com/r/${subreddit}/new/.rss`;
-        const feed = await parser.parseURL(url);
-        return feed.items.map((item) => ({
-            source: 'reddit',
-            sourceId: extractRedditId(item.link || ''),
-            sourceUrl: item.link || '',
-            title: item.title || '',
-            content: item.contentSnippet || item.content || null,
-            author: item.creator || item.author || null,
-            subreddit,
-            postedAt: item.pubDate || null,
-        }));
+        const posts = await fetchSubredditJson(subreddit);
+        return posts;
     }
-    catch (rssError) {
+    catch (jsonError) {
         try {
-            // Fallback path: RSS often returns 403/429 from CI runners.
-            const posts = await fetchSubredditJson(subreddit);
-            if (posts.length > 0) {
-                console.log(`↩️ Fallback JSON fetch succeeded for r/${subreddit}: ${posts.length} posts`);
-            }
-            return posts;
+            const url = `https://www.reddit.com/r/${subreddit}/new/.rss`;
+            const feed = await parser.parseURL(url);
+            return feed.items.map((item) => ({
+                source: 'reddit',
+                sourceId: extractRedditId(item.link || ''),
+                sourceUrl: item.link || '',
+                title: item.title || '',
+                content: item.contentSnippet || item.content || null,
+                author: item.creator || item.author || null,
+                subreddit,
+                postedAt: item.pubDate || null,
+            }));
         }
-        catch (jsonError) {
-            console.error(`Failed to fetch r/${subreddit}:`, rssError);
-            console.error(`Fallback JSON failed for r/${subreddit}:`, jsonError);
+        catch (rssError) {
+            console.error(`Failed to fetch r/${subreddit}:`, jsonError);
+            console.error(`Fallback RSS failed for r/${subreddit}:`, rssError);
             return [];
         }
     }
@@ -136,7 +186,7 @@ function extractRedditId(url) {
  * Fetch all subreddits, filter, and categorize by profession
  */
 export async function fetchRedditPosts() {
-    const maxSubreddits = Math.max(1, Number.parseInt(process.env.SIDEQUEST_MAX_SUBREDDITS || '40', 10) || 40);
+    const maxSubreddits = Math.max(1, Number.parseInt(process.env.SIDEQUEST_MAX_SUBREDDITS || '20', 10) || 20);
     const subreddits = getAllSubreddits().slice(0, maxSubreddits);
     console.log(`📡 Fetching from ${subreddits.length} subreddits...`);
     const allPosts = [];

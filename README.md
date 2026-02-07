@@ -51,6 +51,7 @@ This public repository is used to run GitHub Actions with unlimited free minutes
 - **Purpose**: Scrapes SideQuest job sources, enriches with AI, and writes to SideQuest `job_posts`
 - **Source Code**: `sidequest-bot/`
 - **Run Health**: Writes run tracking rows to `sidequest_runs` and fails when feed freshness is stale beyond threshold
+- **Optional Secrets**: `SIDEQUEST_REDDIT_CLIENT_ID`, `SIDEQUEST_REDDIT_CLIENT_SECRET` for Reddit OAuth fetches
 
 ## Why This Repository Exists
 
