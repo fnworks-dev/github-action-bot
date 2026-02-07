@@ -7,7 +7,9 @@
     "scripts": {
         "build": "tsc",
         "start": "node dist/index.js",
-        "dev": "tsx src/index.ts"
+        "start:split": "node dist/index-split.js",
+        "dev": "tsx src/index.ts",
+        "dev:split": "tsx src/index-split.ts"
     },
     "dependencies": {
         "@libsql/client": "^0.4.3",

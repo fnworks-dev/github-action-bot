@@ -1,0 +1,41 @@
+name: SideQuest Bot 03 (Audio + QA + Hubs)
+
+on:
+  schedule:
+    # Run every 4 hours at :00 (offset 2 hours from 01)
+    - cron: '0 2,6,10,14,18,22 * * *'
+  workflow_dispatch:
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: ./sidequest-bot
+        run: npm ci
+
+      - name: Build
+        working-directory: ./sidequest-bot
+        run: npm run build
+
+      - name: Run SideQuest Bot 03
+        working-directory: ./sidequest-bot
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.SIDEQUEST_TURSO_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.SIDEQUEST_TURSO_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+          CONFIG: '03'
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: npm run start:split
