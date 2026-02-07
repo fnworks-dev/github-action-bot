@@ -1,6 +1,8 @@
 import Parser from 'rss-parser';
 import { config, shouldFilterPost, getAllSubreddits } from '../config.js';
 import { categorizePost, generateSummary } from '../ai/categorizer.js';
+import { filterByHiringIntent } from '../ai/intent-detector.js';
+import { analyzeJob } from '../ai/analyzer.js';
 // Create parser with custom headers to avoid 403
 const parser = new Parser({
     headers: {
@@ -85,13 +87,20 @@ export async function fetchRedditPosts() {
     // Step 3: Apply negative filters (spam, self-promotion, etc.)
     const validPosts = freshPosts.filter(post => !shouldFilterPost(post.title, post.content || ''));
     console.log(`🚫 ${freshPosts.length - validPosts.length} posts filtered by negative filters`);
-    // Step 4: Categorize remaining posts by profession using AI
-    console.log(`🏷️ Categorizing ${validPosts.length} posts by profession...`);
+    // Step 3.5: Detect hiring intent (keyword + AI)
+    console.log(`💼 Detecting hiring intent for ${validPosts.length} posts...`);
+    const jobPosts = await filterByHiringIntent(validPosts);
+    console.log(`💼 ${jobPosts.length} posts show hiring intent (filtered out ${validPosts.length - jobPosts.length} non-job posts)`);
+    // Step 4: Categorize and analyze remaining posts by profession using AI
+    console.log(`🏷️ Categorizing and analyzing ${jobPosts.length} posts...`);
     const enrichedPosts = [];
-    for (const post of validPosts) {
+    for (const post of jobPosts) {
         try {
-            const categorization = await categorizePost(post.title, post.content);
-            const summary = await generateSummary(post.title, post.content);
+            const [categorization, summary, analysis] = await Promise.all([
+                categorizePost(post.title, post.content),
+                generateSummary(post.title, post.content),
+                analyzeJob(post.title, post.content),
+            ]);
             // Only include posts that matched at least one profession
             if (categorization.professions.length > 0) {
                 enrichedPosts.push({
@@ -99,6 +108,7 @@ export async function fetchRedditPosts() {
                     professions: categorization.professions,
                     confidence: categorization.confidence,
                     summary,
+                    analysis,
                 });
             }
         }
@@ -155,13 +165,20 @@ export async function fetchPostsByProfession(professionKey) {
     const freshPosts = postsWithContent.filter(post => isPostFresh(post.postedAt));
     const validPosts = freshPosts.filter(post => !shouldFilterPost(post.title, post.content || ''));
     console.log(`✂️ Filtered to ${validPosts.length} valid posts for ${profession.name}`);
-    // Categorize with AI (will confirm the profession match)
-    console.log(`🏷️ Categorizing ${validPosts.length} posts...`);
+    // Detect hiring intent
+    console.log(`💼 Detecting hiring intent for ${validPosts.length} posts...`);
+    const jobPosts = await filterByHiringIntent(validPosts);
+    console.log(`💼 ${jobPosts.length} posts show hiring intent for ${profession.name}`);
+    // Categorize and analyze with AI (will confirm the profession match)
+    console.log(`🏷️ Categorizing and analyzing ${jobPosts.length} posts...`);
     const enrichedPosts = [];
-    for (const post of validPosts) {
+    for (const post of jobPosts) {
         try {
-            const categorization = await categorizePost(post.title, post.content);
-            const summary = await generateSummary(post.title, post.content);
+            const [categorization, summary, analysis] = await Promise.all([
+                categorizePost(post.title, post.content),
+                generateSummary(post.title, post.content),
+                analyzeJob(post.title, post.content),
+            ]);
             // Only include if this post matches the requested profession
             if (categorization.professions.includes(professionKey)) {
                 enrichedPosts.push({
@@ -169,6 +186,7 @@ export async function fetchPostsByProfession(professionKey) {
                     professions: categorization.professions,
                     confidence: categorization.confidence,
                     summary,
+                    analysis,
                 });
             }
         }

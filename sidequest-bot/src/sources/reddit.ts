@@ -2,13 +2,23 @@ import Parser from 'rss-parser';
 import { config, shouldFilterPost, getAllSubreddits } from '../config.js';
 import { categorizePost, generateSummary } from '../ai/categorizer.js';
 import { filterByHiringIntent } from '../ai/intent-detector.js';
+import { analyzeJob } from '../ai/analyzer.js';
 import type { RawPost, Profession } from '../types.js';
 
-// Enriched post with professions
+// Enriched post with professions and AI analysis
 export interface EnrichedPost extends RawPost {
     professions: Profession[];
     confidence: number;
     summary: string;
+    analysis?: {
+        project_type: string | null;
+        tech_stack: string[] | null;
+        scope: string | null;
+        timeline_signal: string | null;
+        budget_signal: string | null;
+        red_flags: string[];
+        green_flags: string[];
+    };
 }
 
 // Create parser with custom headers to avoid 403
@@ -113,14 +123,17 @@ export async function fetchRedditPosts(): Promise<EnrichedPost[]> {
     const jobPosts = await filterByHiringIntent(validPosts);
     console.log(`💼 ${jobPosts.length} posts show hiring intent (filtered out ${validPosts.length - jobPosts.length} non-job posts)`);
 
-    // Step 4: Categorize remaining posts by profession using AI
-    console.log(`🏷️ Categorizing ${jobPosts.length} posts by profession...`);
+    // Step 4: Categorize and analyze remaining posts by profession using AI
+    console.log(`🏷️ Categorizing and analyzing ${jobPosts.length} posts...`);
     const enrichedPosts: EnrichedPost[] = [];
 
     for (const post of jobPosts) {
         try {
-            const categorization = await categorizePost(post.title, post.content);
-            const summary = await generateSummary(post.title, post.content);
+            const [categorization, summary, analysis] = await Promise.all([
+                categorizePost(post.title, post.content),
+                generateSummary(post.title, post.content),
+                analyzeJob(post.title, post.content),
+            ]);
 
             // Only include posts that matched at least one profession
             if (categorization.professions.length > 0) {
@@ -129,6 +142,7 @@ export async function fetchRedditPosts(): Promise<EnrichedPost[]> {
                     professions: categorization.professions,
                     confidence: categorization.confidence,
                     summary,
+                    analysis,
                 });
             }
         } catch (error) {
@@ -209,14 +223,17 @@ export async function fetchPostsByProfession(professionKey: string): Promise<Enr
     const jobPosts = await filterByHiringIntent(validPosts);
     console.log(`💼 ${jobPosts.length} posts show hiring intent for ${profession.name}`);
 
-    // Categorize with AI (will confirm the profession match)
-    console.log(`🏷️ Categorizing ${jobPosts.length} posts...`);
+    // Categorize and analyze with AI (will confirm the profession match)
+    console.log(`🏷️ Categorizing and analyzing ${jobPosts.length} posts...`);
     const enrichedPosts: EnrichedPost[] = [];
 
     for (const post of jobPosts) {
         try {
-            const categorization = await categorizePost(post.title, post.content);
-            const summary = await generateSummary(post.title, post.content);
+            const [categorization, summary, analysis] = await Promise.all([
+                categorizePost(post.title, post.content),
+                generateSummary(post.title, post.content),
+                analyzeJob(post.title, post.content),
+            ]);
 
             // Only include if this post matches the requested profession
             if (categorization.professions.includes(professionKey as Profession)) {
@@ -225,6 +242,7 @@ export async function fetchPostsByProfession(professionKey: string): Promise<Enr
                     professions: categorization.professions,
                     confidence: categorization.confidence,
                     summary,
+                    analysis,
                 });
             }
         } catch (error) {

@@ -55,7 +55,15 @@ export async function initDb() {
                         status TEXT DEFAULT 'new',
                         posted_at TEXT,
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        -- AI Analysis fields
+                        project_type TEXT,
+                        tech_stack TEXT,
+                        scope TEXT,
+                        timeline_signal TEXT,
+                        budget_signal TEXT,
+                        red_flags TEXT,
+                        green_flags TEXT
                     )`,
             `CREATE INDEX IF NOT EXISTS idx_job_posts_source ON job_posts(source, source_id)`,
             `CREATE INDEX IF NOT EXISTS idx_job_posts_status ON job_posts(status)`,
@@ -83,8 +91,8 @@ export async function jobExists(source, sourceId) {
         operation: `jobExists(source="${source}", sourceId="${sourceId}")`,
     });
 }
-// Insert new job post
-export async function insertJob(post, professions, score, summary) {
+// Insert new job post with AI analysis
+export async function insertJob(post, professions, score, summary, analysis) {
     return retryWithBackoff(async () => {
         const db = getDb();
         const id = crypto.randomUUID();
@@ -92,8 +100,9 @@ export async function insertJob(post, professions, score, summary) {
             sql: `
                     INSERT INTO job_posts (
                         id, source, source_id, source_url, title, content, author, subreddit,
-                        professions, score, summary, posted_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        professions, score, summary, posted_at,
+                        project_type, tech_stack, scope, timeline_signal, budget_signal, red_flags, green_flags
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `,
             args: [
                 id,
@@ -108,6 +117,14 @@ export async function insertJob(post, professions, score, summary) {
                 score,
                 summary,
                 post.postedAt,
+                // Analysis fields
+                analysis?.project_type || null,
+                analysis?.tech_stack ? JSON.stringify(analysis.tech_stack) : null,
+                analysis?.scope || null,
+                analysis?.timeline_signal || null,
+                analysis?.budget_signal || null,
+                analysis?.red_flags?.length ? JSON.stringify(analysis.red_flags) : null,
+                analysis?.green_flags?.length ? JSON.stringify(analysis.green_flags) : null,
             ],
         });
         return id;

@@ -13,6 +13,7 @@ export const config = {
         geminiKey: process.env.GEMINI_API_KEY || '',
         geminiUrl: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
         glmKey: process.env.GLM_API_KEY || '',
+        // Anthropic-compatible endpoint for GLM via Z.ai proxy
         glmUrl: 'https://api.z.ai/api/anthropic/v1/messages',
     },
 

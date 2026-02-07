@@ -83,7 +83,7 @@ Return ONLY the JSON, no explanation.`;
 }
 
 /**
- * Call GLM API for categorization (Anthropic-compatible)
+ * Call GLM API for categorization (Anthropic-compatible format)
  */
 async function categorizeWithGLM(text: string): Promise<CategorizationResult> {
     const professionList = Object.values(professions).map(p => ({
@@ -115,9 +115,10 @@ Return ONLY the JSON, no explanation.`;
         headers: {
             'Content-Type': 'application/json',
             'x-api-key': config.ai.glmKey,
+            'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-            model: 'glm-4-plus',
+            model: 'claude-sonnet-4-20250514', // Maps to GLM-4 via Z.ai proxy
             max_tokens: 500,
             messages: [{
                 role: 'user',
@@ -127,6 +128,8 @@ Return ONLY the JSON, no explanation.`;
     });
 
     if (!response.ok) {
+        const errorText = await response.text().catch(() => '');
+        console.log(`   GLM error ${response.status}: ${errorText.slice(0, 100)}`);
         throw new Error(`GLM API error: ${response.status}`);
     }
 

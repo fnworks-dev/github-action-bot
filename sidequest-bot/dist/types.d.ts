@@ -19,6 +19,12 @@ export interface CategorizationResult {
     professions: Profession[];
     confidence: number;
 }
+export interface IntentDetectionResult {
+    isJob: boolean;
+    confidence: number;
+    reason?: string;
+    method: 'ai' | 'keyword';
+}
 export interface JobPost {
     id: string;
     source: 'reddit';
@@ -35,6 +41,15 @@ export interface JobPost {
     postedAt: string | null;
     createdAt: string;
     updatedAt: string;
+}
+export interface JobAnalysis {
+    project_type: string | null;
+    tech_stack: string[] | null;
+    scope: 'small' | 'medium' | 'large' | null;
+    timeline_signal: string | null;
+    budget_signal: string | null;
+    red_flags: string[];
+    green_flags: string[];
 }
 export interface DiscordEmbed {
     title: string;

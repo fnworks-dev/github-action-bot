@@ -13,9 +13,15 @@ async function processPost(post) {
     console.log(`📝 New job: ${post.title.slice(0, 60)}...`);
     console.log(`   Professions: ${post.professions.join(', ')}`);
     console.log(`   Confidence: ${(post.confidence * 100).toFixed(0)}%`);
-    // Insert into database
+    if (post.analysis?.project_type) {
+        console.log(`   Project: ${post.analysis.project_type}`);
+    }
+    if (post.analysis?.tech_stack?.length) {
+        console.log(`   Tech: ${post.analysis.tech_stack.join(', ')}`);
+    }
+    // Insert into database with analysis
     await insertJob(post, post.professions, null, // score - not used for job board
-    post.summary);
+    post.summary, post.analysis);
     return true;
 }
 /**

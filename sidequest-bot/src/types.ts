@@ -72,6 +72,17 @@ export interface JobPost {
     updatedAt: string;
 }
 
+// Structured AI analysis of job post
+export interface JobAnalysis {
+    project_type: string | null;        // e.g., "E-commerce website", "Mobile app"
+    tech_stack: string[] | null;        // e.g., ["React", "Node.js", "PostgreSQL"]
+    scope: 'small' | 'medium' | 'large' | null;
+    timeline_signal: string | null;     // e.g., "ASAP", "2-3 weeks", "flexible"
+    budget_signal: string | null;       // e.g., "$5k-$10k", "not mentioned"
+    red_flags: string[];                // Warning signs
+    green_flags: string[];              // Positive indicators
+}
+
 // Discord embed (for future use if needed)
 export interface DiscordEmbed {
     title: string;
