@@ -5,6 +5,9 @@ import { filterByHiringIntent } from '../ai/intent-detector.js';
 import { analyzeJob } from '../ai/analyzer.js';
 import type { RawPost, Profession } from '../types.js';
 
+const REDDIT_USER_AGENT = 'script:fnworks.sidequest-bot:v1.1 (by /u/fnworks-dev)';
+const REDDIT_JSON_LIMIT = 25;
+
 // Enriched post with professions and AI analysis
 export interface EnrichedPost extends RawPost {
     professions: Profession[];
@@ -24,7 +27,7 @@ export interface EnrichedPost extends RawPost {
 // Create parser with custom headers to avoid 403
 const parser = new Parser({
     headers: {
-        'User-Agent': 'FNworks-SideQuestBot/1.0 (https://sidequest.board)',
+        'User-Agent': REDDIT_USER_AGENT,
         'Accept': 'application/rss+xml, application/xml, text/xml',
     },
     timeout: 10000,
@@ -48,6 +51,67 @@ function isBoilerplateContent(content: string | null): boolean {
     return hasBoilerplate && isShort;
 }
 
+// Parse Reddit JSON listing into RawPost entries
+function parseRedditListing(subreddit: string, payload: any): RawPost[] {
+    const children = payload?.data?.children;
+    if (!Array.isArray(children)) {
+        return [];
+    }
+
+    return children
+        .map((child: any) => child?.data)
+        .filter(Boolean)
+        .map((post: any) => ({
+            source: 'reddit' as const,
+            sourceId: typeof post.id === 'string'
+                ? post.id
+                : extractRedditId(post.permalink || post.url || ''),
+            sourceUrl: typeof post.permalink === 'string'
+                ? `https://www.reddit.com${post.permalink}`
+                : (typeof post.url === 'string' ? post.url : ''),
+            title: typeof post.title === 'string' ? post.title : '',
+            content: typeof post.selftext === 'string' && post.selftext.trim().length > 0
+                ? post.selftext
+                : null,
+            author: typeof post.author === 'string' ? post.author : null,
+            subreddit: typeof post.subreddit === 'string' ? post.subreddit : subreddit,
+            postedAt: typeof post.created_utc === 'number'
+                ? new Date(post.created_utc * 1000).toISOString()
+                : null,
+        }))
+        .filter((post: RawPost) => post.title.trim().length > 0 && post.sourceUrl.trim().length > 0);
+}
+
+async function fetchSubredditJson(subreddit: string): Promise<RawPost[]> {
+    const endpoints = [
+        `https://api.reddit.com/r/${subreddit}/new?limit=${REDDIT_JSON_LIMIT}&raw_json=1`,
+        `https://www.reddit.com/r/${subreddit}/new.json?limit=${REDDIT_JSON_LIMIT}&raw_json=1`,
+    ];
+    let lastError: Error | null = null;
+
+    for (const endpoint of endpoints) {
+        try {
+            const response = await fetch(endpoint, {
+                headers: {
+                    'User-Agent': REDDIT_USER_AGENT,
+                    'Accept': 'application/json',
+                },
+            });
+
+            if (!response.ok) {
+                throw new Error(`Status code ${response.status}`);
+            }
+
+            const payload = await response.json();
+            return parseRedditListing(subreddit, payload);
+        } catch (error) {
+            lastError = error as Error;
+        }
+    }
+
+    throw lastError || new Error('Unknown Reddit JSON fetch error');
+}
+
 // Fetch posts from a single subreddit
 async function fetchSubreddit(subreddit: string): Promise<RawPost[]> {
     try {
@@ -64,9 +128,19 @@ async function fetchSubreddit(subreddit: string): Promise<RawPost[]> {
             subreddit,
             postedAt: item.pubDate || null,
         }));
-    } catch (error) {
-        console.error(`Failed to fetch r/${subreddit}:`, error);
-        return [];
+    } catch (rssError) {
+        try {
+            // Fallback path: RSS often returns 403/429 from CI runners.
+            const posts = await fetchSubredditJson(subreddit);
+            if (posts.length > 0) {
+                console.log(`↩️ Fallback JSON fetch succeeded for r/${subreddit}: ${posts.length} posts`);
+            }
+            return posts;
+        } catch (jsonError) {
+            console.error(`Failed to fetch r/${subreddit}:`, rssError);
+            console.error(`Fallback JSON failed for r/${subreddit}:`, jsonError);
+            return [];
+        }
     }
 }
 
@@ -89,7 +163,11 @@ function extractRedditId(url: string): string {
  * Fetch all subreddits, filter, and categorize by profession
  */
 export async function fetchRedditPosts(): Promise<EnrichedPost[]> {
-    const subreddits = getAllSubreddits();
+    const maxSubreddits = Math.max(
+        1,
+        Number.parseInt(process.env.SIDEQUEST_MAX_SUBREDDITS || '40', 10) || 40
+    );
+    const subreddits = getAllSubreddits().slice(0, maxSubreddits);
     console.log(`📡 Fetching from ${subreddits.length} subreddits...`);
 
     const allPosts: RawPost[] = [];
@@ -98,8 +176,8 @@ export async function fetchRedditPosts(): Promise<EnrichedPost[]> {
         const posts = await fetchSubreddit(subreddit);
         allPosts.push(...posts);
 
-        // Small delay to avoid rate limiting
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        // Keep request pace moderate to reduce 429 responses in CI.
+        await new Promise((resolve) => setTimeout(resolve, 900));
     }
 
     console.log(`📥 Fetched ${allPosts.length} total posts from Reddit`);
@@ -202,7 +280,7 @@ export async function fetchPostsByProfession(professionKey: string): Promise<Enr
         const posts = await fetchSubreddit(subreddit);
         allPosts.push(...posts);
 
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 900));
     }
 
     console.log(`📥 Fetched ${allPosts.length} total posts for ${profession.name}`);
