@@ -22,6 +22,7 @@ interface ProcessResult {
 }
 
 const DEFAULT_STALE_FAIL_HOURS = 72;
+const DEFAULT_OPERATION_TIMEOUT_MS = 120_000;
 
 /**
  * Process a single post - check for duplicates and insert if new
@@ -151,6 +152,23 @@ function maskDbHost(url: string): string {
     }
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation: string): Promise<T> {
+    let timer: NodeJS.Timeout | null = null;
+    try {
+        const timeoutPromise = new Promise<T>((_, reject) => {
+            timer = setTimeout(() => {
+                reject(new Error(`${operation} timed out after ${timeoutMs}ms`));
+            }, timeoutMs);
+        });
+
+        return await Promise.race([promise, timeoutPromise]);
+    } finally {
+        if (timer) {
+            clearTimeout(timer);
+        }
+    }
+}
+
 async function verifyFreshnessOrThrow(latestCreatedAt: string | null, staleFailHours: number): Promise<void> {
     if (!latestCreatedAt) {
         throw new Error('Freshness check failed: job_posts has no created_at value');
@@ -244,7 +262,11 @@ async function main() {
         finalStage = 'RUN_TRACKING_STARTED';
 
         // Get initial stats
-        const initialStats = await getStats();
+        const initialStats = await withTimeout(
+            getStats(),
+            DEFAULT_OPERATION_TIMEOUT_MS,
+            'getStats(initial)'
+        );
         await logStage('INITIAL_STATS_LOADED', runRecordId);
         finalStage = 'INITIAL_STATS_LOADED';
 
@@ -257,9 +279,13 @@ async function main() {
         // Process jobs
         await logStage('FETCH_STARTED', runRecordId);
         finalStage = 'FETCH_STARTED';
-        result = await processJobs((fetchedCount) => {
-            console.log(`📦 Fetch complete: ${fetchedCount} candidate posts`);
-        });
+        result = await withTimeout(
+            processJobs((fetchedCount) => {
+                console.log(`📦 Fetch complete: ${fetchedCount} candidate posts`);
+            }),
+            15 * 60_000,
+            'processJobs'
+        );
         await logStage('FETCH_COMPLETED', runRecordId);
         finalStage = 'FETCH_COMPLETED';
         await logStage('PROCESS_COMPLETED', runRecordId);
@@ -277,13 +303,21 @@ async function main() {
         }
 
         // Run cleanup job
-        const deletedCount = await runCleanup();
+        const deletedCount = await withTimeout(
+            runCleanup(),
+            DEFAULT_OPERATION_TIMEOUT_MS,
+            'runCleanup'
+        );
         await logStage('CLEANUP_COMPLETED', runRecordId);
         finalStage = 'CLEANUP_COMPLETED';
 
         console.log('');
         console.log('📊 Final database stats:');
-        const finalStats = await getStats();
+        const finalStats = await withTimeout(
+            getStats(),
+            DEFAULT_OPERATION_TIMEOUT_MS,
+            'getStats(final)'
+        );
         latestAfter = await getLatestJobCreatedAt();
         console.log(`   Total jobs: ${finalStats.total}`);
         console.log(`   By status: new=${finalStats.byStatus.new}, processed=${finalStats.byStatus.processed}, archived=${finalStats.byStatus.archived}`);
