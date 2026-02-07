@@ -1,5 +1,7 @@
 export type Profession = 'developer' | 'artist' | 'voice-actor' | 'video-editor' | 'writer' | 'audio' | 'qa' | 'virtual-assistant';
 export type JobStatus = 'new' | 'processed' | 'archived';
+export type SidequestRunStatus = 'running' | 'success' | 'failed';
+export type SidequestRunStage = 'BOOT' | 'CONFIG_VALIDATED' | 'DB_INITIALIZED' | 'RUN_TRACKING_STARTED' | 'INITIAL_STATS_LOADED' | 'FETCH_STARTED' | 'FETCH_COMPLETED' | 'PROCESS_COMPLETED' | 'CLEANUP_COMPLETED' | 'FRESHNESS_VALIDATED' | 'RUN_COMPLETED' | 'FAILED';
 export interface RawPost {
     source: 'reddit';
     sourceId: string;

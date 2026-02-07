@@ -1,6 +1,13 @@
 import { createClient, type Client, LibsqlError } from '@libsql/client';
 import { config } from '../config.js';
-import type { JobPost, RawPost, JobStatus, Profession } from '../types.js';
+import type {
+    JobPost,
+    RawPost,
+    JobStatus,
+    Profession,
+    SidequestRunStage,
+    SidequestRunStatus,
+} from '../types.js';
 
 let client: Client | null = null;
 
@@ -60,6 +67,20 @@ export function getDb(): Client {
     return client;
 }
 
+interface StartSidequestRunInput {
+    githubRunId: string | null;
+    trigger: string;
+    stage: SidequestRunStage;
+    latestJobCreatedAtBefore: string | null;
+}
+
+interface CompleteSidequestRunSuccessInput {
+    fetchedCount: number;
+    newJobsCount: number;
+    stage: SidequestRunStage;
+    latestJobCreatedAtAfter: string | null;
+}
+
 // Initialize database schema
 export async function initDb(): Promise<void> {
     await retryWithBackoff(
@@ -96,6 +117,23 @@ export async function initDb(): Promise<void> {
                     `CREATE INDEX IF NOT EXISTS idx_job_posts_source ON job_posts(source, source_id)`,
                     `CREATE INDEX IF NOT EXISTS idx_job_posts_status ON job_posts(status)`,
                     `CREATE INDEX IF NOT EXISTS idx_job_posts_created ON job_posts(created_at)`,
+                    `CREATE TABLE IF NOT EXISTS sidequest_runs (
+                        id TEXT PRIMARY KEY,
+                        github_run_id TEXT,
+                        trigger TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        stage TEXT NOT NULL,
+                        fetched_count INTEGER NOT NULL DEFAULT 0,
+                        new_jobs_count INTEGER NOT NULL DEFAULT 0,
+                        latest_job_created_at_before TEXT,
+                        latest_job_created_at_after TEXT,
+                        error_message TEXT,
+                        started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        finished_at TEXT
+                    )`,
+                    `CREATE INDEX IF NOT EXISTS idx_sidequest_runs_started ON sidequest_runs(started_at DESC)`,
+                    `CREATE INDEX IF NOT EXISTS idx_sidequest_runs_status ON sidequest_runs(status)`,
+                    `CREATE INDEX IF NOT EXISTS idx_sidequest_runs_github_run ON sidequest_runs(github_run_id)`,
                 ],
                 'write'
             );
@@ -106,6 +144,157 @@ export async function initDb(): Promise<void> {
             maxAttempts: 3,
             delayMs: 60000,
             operation: 'initDb',
+        }
+    );
+}
+
+// Get latest created_at in job_posts
+export async function getLatestJobCreatedAt(): Promise<string | null> {
+    return retryWithBackoff(
+        async () => {
+            const db = getDb();
+            const result = await db.execute({
+                sql: 'SELECT MAX(created_at) AS latest_created_at FROM job_posts',
+                args: [],
+            });
+            return (result.rows[0]?.latest_created_at as string | null) ?? null;
+        },
+        {
+            maxAttempts: 3,
+            delayMs: 60000,
+            operation: 'getLatestJobCreatedAt',
+        }
+    );
+}
+
+// Create run tracking row and return run ID
+export async function startSidequestRun(input: StartSidequestRunInput): Promise<string> {
+    return retryWithBackoff(
+        async () => {
+            const db = getDb();
+            const runId = crypto.randomUUID();
+
+            await db.execute({
+                sql: `
+                    INSERT INTO sidequest_runs (
+                        id,
+                        github_run_id,
+                        trigger,
+                        status,
+                        stage,
+                        latest_job_created_at_before
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                `,
+                args: [
+                    runId,
+                    input.githubRunId,
+                    input.trigger,
+                    'running' satisfies SidequestRunStatus,
+                    input.stage,
+                    input.latestJobCreatedAtBefore,
+                ],
+            });
+
+            return runId;
+        },
+        {
+            maxAttempts: 3,
+            delayMs: 60000,
+            operation: 'startSidequestRun',
+        }
+    );
+}
+
+// Update run stage while processing
+export async function updateSidequestRunStage(
+    runId: string,
+    stage: SidequestRunStage
+): Promise<void> {
+    await retryWithBackoff(
+        async () => {
+            const db = getDb();
+            await db.execute({
+                sql: 'UPDATE sidequest_runs SET stage = ? WHERE id = ?',
+                args: [stage, runId],
+            });
+        },
+        {
+            maxAttempts: 3,
+            delayMs: 60000,
+            operation: `updateSidequestRunStage(${stage})`,
+        }
+    );
+}
+
+// Mark run success and persist metrics
+export async function completeSidequestRunSuccess(
+    runId: string,
+    input: CompleteSidequestRunSuccessInput
+): Promise<void> {
+    await retryWithBackoff(
+        async () => {
+            const db = getDb();
+            await db.execute({
+                sql: `
+                    UPDATE sidequest_runs
+                    SET
+                        status = ?,
+                        stage = ?,
+                        fetched_count = ?,
+                        new_jobs_count = ?,
+                        latest_job_created_at_after = ?,
+                        finished_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                `,
+                args: [
+                    'success' satisfies SidequestRunStatus,
+                    input.stage,
+                    input.fetchedCount,
+                    input.newJobsCount,
+                    input.latestJobCreatedAtAfter,
+                    runId,
+                ],
+            });
+        },
+        {
+            maxAttempts: 3,
+            delayMs: 60000,
+            operation: 'completeSidequestRunSuccess',
+        }
+    );
+}
+
+// Mark run failure and store error details
+export async function completeSidequestRunFailure(
+    runId: string,
+    stage: SidequestRunStage,
+    errorMessage: string
+): Promise<void> {
+    await retryWithBackoff(
+        async () => {
+            const db = getDb();
+            await db.execute({
+                sql: `
+                    UPDATE sidequest_runs
+                    SET
+                        status = ?,
+                        stage = ?,
+                        error_message = ?,
+                        finished_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                `,
+                args: [
+                    'failed' satisfies SidequestRunStatus,
+                    stage,
+                    errorMessage.slice(0, 2000),
+                    runId,
+                ],
+            });
+        },
+        {
+            maxAttempts: 3,
+            delayMs: 60000,
+            operation: 'completeSidequestRunFailure',
         }
     );
 }

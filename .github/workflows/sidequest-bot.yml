@@ -9,6 +9,7 @@ on:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -34,4 +35,17 @@ jobs:
           TURSO_AUTH_TOKEN: ${{ secrets.SIDEQUEST_TURSO_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          SIDEQUEST_STALE_FAIL_HOURS: 72
         run: npm start
+
+      - name: SideQuest Run Diagnostics
+        if: always()
+        working-directory: ./sidequest-bot
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.SIDEQUEST_TURSO_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.SIDEQUEST_TURSO_TOKEN }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          node -e "const { createClient } = require('@libsql/client'); (async () => { const db = createClient({ url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN }); const result = await db.execute({ sql: 'SELECT id, github_run_id, trigger, status, stage, fetched_count, new_jobs_count, latest_job_created_at_before, latest_job_created_at_after, error_message, started_at, finished_at FROM sidequest_runs WHERE github_run_id = ? ORDER BY started_at DESC LIMIT 1', args: [process.env.GITHUB_RUN_ID] }); const row = result.rows[0] || null; console.log('SIDEQUEST_RUN_DIAGNOSTICS'); console.log(JSON.stringify(row, null, 2)); })().catch((error) => { console.error('DIAGNOSTICS_ERROR', error.message); process.exit(1); });"

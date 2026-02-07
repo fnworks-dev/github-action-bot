@@ -43,6 +43,15 @@ This public repository is used to run GitHub Actions with unlimited free minutes
 - **Purpose**: Discovers and analyzes problems from various sources, scores them for relevance, saves to database, and sends Discord notifications
 - **Source Code**: `research-bot/`
 
+### SideQuest Bot
+
+**File**: `.github/workflows/sidequest-bot.yml`
+
+- **Schedule**: Every 4 hours (`0 */4 * * *`, UTC)
+- **Purpose**: Scrapes SideQuest job sources, enriches with AI, and writes to SideQuest `job_posts`
+- **Source Code**: `sidequest-bot/`
+- **Run Health**: Writes run tracking rows to `sidequest_runs` and fails when feed freshness is stale beyond threshold
+
 ## Why This Repository Exists
 
 GitHub Actions provides **unlimited free minutes** for public repositories, but private repositories are limited to 2,000 minutes/month.
@@ -57,4 +66,3 @@ By hosting automation workflows in this public repository, we can:
 - This repository contains **no sensitive code** or credentials
 - All secrets are stored as GitHub repository secrets
 - Database operations use environment variables only
-
