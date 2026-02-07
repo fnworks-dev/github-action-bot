@@ -195,7 +195,7 @@ async function main() {
         const runRecordId = await startSidequestRun({
             githubRunId,
             trigger,
-            stage: 'RUNNING',
+            stage: 'FETCH_STARTED',
             latestJobCreatedAtBefore: latestBefore,
         });
 
@@ -204,6 +204,7 @@ async function main() {
         await completeSidequestRunSuccess(runRecordId, {
             fetchedCount: result.fetched,
             newJobsCount: result.newJobs,
+            stage: 'RUN_COMPLETED',
             latestJobCreatedAtAfter: await getLatestJobCreatedAt(),
         });
 
