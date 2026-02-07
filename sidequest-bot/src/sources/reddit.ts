@@ -6,7 +6,7 @@ import { analyzeJob } from '../ai/analyzer.js';
 import type { RawPost, Profession } from '../types.js';
 import { createHash } from 'crypto';
 
-const REDDIT_USER_AGENT = 'script:fnworks.sidequest-bot:v1.2 (by /u/fnworks-dev)';
+const REDDIT_USER_AGENT = 'SidequestBot/1.2 (RSS Reader; https://sidequest.dev)';
 
 // Max age for posts (24 hours)
 const MAX_POST_AGE_MS = 24 * 60 * 60 * 1000;
