@@ -1,4 +1,3 @@
-import Parser from 'rss-parser';
 import { config } from '../config.js';
 import type { RawPost } from '../types.js';
 import { createHash } from 'crypto';
@@ -6,65 +5,91 @@ import { createHash } from 'crypto';
 // Max age for posts (24 hours)
 const MAX_POST_AGE_MS = 24 * 60 * 60 * 1000;
 
-// Create parser with custom headers to avoid 403
-const parser = new Parser({
-    headers: {
-        'User-Agent': 'FNworks-LeadBot/1.0 (https://fnworks.dev)',
-        'Accept': 'application/rss+xml, application/xml, text/xml',
-    },
-    timeout: 10000,
-});
+// Reddit JSON API response types
+interface RedditListing {
+    data: {
+        children: Array<{
+            data: RedditPost;
+        }>;
+    };
+}
+
+interface RedditPost {
+    id: string;
+    title: string;
+    selftext: string;
+    author: string;
+    subreddit: string;
+    permalink: string;
+    url: string;
+    created_utc: number;
+    is_self: boolean;
+}
 
 // Check if post is fresh (< 24h old)
-function isPostFresh(postedAt: string | null): boolean {
-    if (!postedAt) return true; // If no date, include it
-    const postDate = new Date(postedAt);
+function isPostFresh(createdUtc: number): boolean {
+    const postDate = new Date(createdUtc * 1000);
     const now = new Date();
     return (now.getTime() - postDate.getTime()) < MAX_POST_AGE_MS;
 }
 
-// Check if content is just Reddit RSS boilerplate (not real post content)
-function isBoilerplateContent(content: string | null): boolean {
-    if (!content) return true;
-    const text = content.toLowerCase().trim();
-    // Reddit RSS boilerplate patterns
-    const boilerplatePatterns = ['submitted by', '[link]', '[comments]'];
-    const hasBoilerplate = boilerplatePatterns.some((p) => text.includes(p));
-    const isShort = text.length < 150; // Boilerplate is usually short
-    return hasBoilerplate && isShort;
+// Extract a consistent source ID from Reddit post
+function getSourceId(post: RedditPost): string {
+    if (post.id) return post.id;
+    const hash = createHash('sha256').update(post.permalink).digest('hex');
+    return `reddit_${hash.substring(0, 12)}`;
 }
 
-// Fetch posts from a single subreddit
+// Fetch posts from a single subreddit using the JSON API
 async function fetchSubreddit(subreddit: string): Promise<RawPost[]> {
-    try {
-        const url = `https://www.reddit.com/r/${subreddit}/new/.rss`;
-        const feed = await parser.parseURL(url);
+    const url = `https://www.reddit.com/r/${subreddit}/new.json?limit=25`;
 
-        return feed.items.map((item) => ({
-            source: 'reddit' as const,
-            sourceId: extractRedditId(item.link || ''),
-            sourceUrl: item.link || '',
-            title: item.title || '',
-            content: item.contentSnippet || item.content || null,
-            author: item.creator || item.author || null,
-            subreddit,
-            postedAt: item.pubDate || null,
-        }));
+    let response: Response;
+    try {
+        response = await fetch(url, {
+            headers: {
+                'User-Agent': 'FNworks-LeadBot/1.0 (https://fnworks.dev)',
+                'Accept': 'application/json',
+            },
+            signal: AbortSignal.timeout(12000),
+        });
     } catch (error) {
-        console.error(`Failed to fetch r/${subreddit}:`, error);
+        console.error(`❌ r/${subreddit}: network error – ${(error as Error).message}`);
         return [];
     }
-}
 
-// Extract Reddit post ID from URL
-function extractRedditId(url: string): string {
-    const match = url.match(/\/comments\/([a-z0-9]+)/i);
-    if (match) return match[1];
+    if (!response.ok) {
+        console.error(`❌ r/${subreddit}: HTTP ${response.status} ${response.statusText}`);
+        return [];
+    }
 
-    // Safe fallback: use hash instead of raw URL to avoid special characters
-    // that could cause SQL parameter issues with Turso
-    const hash = createHash('sha256').update(url).digest('hex');
-    return `reddit_${hash.substring(0, 12)}`; // First 12 chars is sufficient uniqueness
+    let listing: RedditListing;
+    try {
+        listing = await response.json() as RedditListing;
+    } catch (error) {
+        console.error(`❌ r/${subreddit}: failed to parse JSON – ${(error as Error).message}`);
+        return [];
+    }
+
+    const posts = listing?.data?.children;
+    if (!posts || posts.length === 0) {
+        console.warn(`⚠️  r/${subreddit}: empty listing (possible IP block or empty sub)`);
+        return [];
+    }
+
+    return posts.map(({ data: post }) => ({
+        source: 'reddit' as const,
+        sourceId: getSourceId(post),
+        sourceUrl: `https://www.reddit.com${post.permalink}`,
+        title: post.title || '',
+        // Use selftext for text posts; link posts have no body
+        content: post.is_self && post.selftext && post.selftext !== '[removed]'
+            ? post.selftext
+            : null,
+        author: post.author || null,
+        subreddit,
+        postedAt: new Date(post.created_utc * 1000).toISOString(),
+    }));
 }
 
 // Check if post matches keywords, passes negative filters, and is fresh
@@ -72,7 +97,7 @@ function matchesKeywords(post: RawPost): boolean {
     const text = `${post.title} ${post.content || ''}`.toLowerCase();
 
     // Check if post is fresh (< 24h old)
-    if (!isPostFresh(post.postedAt)) {
+    if (!isPostFresh(new Date(post.postedAt!).getTime() / 1000)) {
         return false;
     }
 
@@ -92,28 +117,23 @@ function matchesKeywords(post: RawPost): boolean {
 
 // Fetch all subreddits and filter by keywords
 export async function fetchRedditPosts(): Promise<RawPost[]> {
-    console.log(`📡 Fetching from ${config.subreddits.length} subreddits...`);
+    console.log(`📡 Fetching from ${config.subreddits.length} subreddits via JSON API...`);
 
     const allPosts: RawPost[] = [];
 
     for (const subreddit of config.subreddits) {
         const posts = await fetchSubreddit(subreddit);
+        console.log(`   r/${subreddit}: ${posts.length} posts`);
         allPosts.push(...posts);
 
         // Small delay to avoid rate limiting
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 600));
     }
 
     console.log(`📥 Fetched ${allPosts.length} total posts from Reddit`);
 
-    // Filter out posts with empty content or title
-    const postsWithContent = allPosts.filter(post =>
-        post.title?.trim() && !isBoilerplateContent(post.content)
-    );
-    console.log(`✂️ Filtered out ${allPosts.length - postsWithContent.length} posts with empty/boilerplate content`);
-
-    // Filter by keywords, negative filters, and time
-    const matchingPosts = postsWithContent.filter(matchesKeywords);
+    // Filter by keywords, negative filters, and freshness
+    const matchingPosts = allPosts.filter(matchesKeywords);
     console.log(`🎯 ${matchingPosts.length} posts match keywords (< 24h old)`);
 
     return matchingPosts;
