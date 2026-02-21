@@ -5,13 +5,9 @@ import { createHash } from 'crypto';
 // Max age for posts (24 hours)
 const MAX_POST_AGE_MS = 24 * 60 * 60 * 1000;
 
-// Reddit JSON API response types
+// Arctic Shift JSON API response types (Reddit mirror)
 interface RedditListing {
-    data: {
-        children: Array<{
-            data: RedditPost;
-        }>;
-    };
+    data: RedditPost[];
 }
 
 interface RedditPost {
@@ -42,7 +38,8 @@ function getSourceId(post: RedditPost): string {
 
 // Fetch posts from a single subreddit using the JSON API
 async function fetchSubreddit(subreddit: string): Promise<RawPost[]> {
-    const url = `https://www.reddit.com/r/${subreddit}/new.json?limit=25`;
+    // Escaping GitHub Actions IP blocks using Arctic Shift mirror
+    const url = `https://arctic-shift.photon-reddit.com/api/posts/search?subreddit=${subreddit}&limit=25`;
 
     let response: Response;
     try {
@@ -71,13 +68,13 @@ async function fetchSubreddit(subreddit: string): Promise<RawPost[]> {
         return [];
     }
 
-    const posts = listing?.data?.children;
+    const posts = listing?.data;
     if (!posts || posts.length === 0) {
         console.warn(`⚠️  r/${subreddit}: empty listing (possible IP block or empty sub)`);
         return [];
     }
 
-    return posts.map(({ data: post }) => ({
+    return posts.map((post) => ({
         source: 'reddit' as const,
         sourceId: getSourceId(post),
         sourceUrl: `https://www.reddit.com${post.permalink}`,
