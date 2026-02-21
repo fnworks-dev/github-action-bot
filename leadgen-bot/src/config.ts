@@ -53,6 +53,8 @@ export const config = {
     // High intent - people looking for developers
     "startups",
     "cofounder",
+    "forhire",
+    "freelance_forhire",
     "Entrepreneur",
     "EntrepreneurRideAlong",
     "SaaS",
