@@ -1,4 +1,3 @@
-import Parser from 'rss-parser';
 import { config, shouldFilterPost, getAllSubreddits } from '../config.js';
 import { categorizePost, generateSummary } from '../ai/categorizer.js';
 import { filterByHiringIntent } from '../ai/intent-detector.js';
@@ -6,29 +5,95 @@ import { analyzeJob } from '../ai/analyzer.js';
 import type { RawPost, Profession } from '../types.js';
 import { createHash } from 'crypto';
 
-const REDDIT_USER_AGENT = 'SidequestBot/1.2 (RSS Reader; https://sidequest.dev)';
-
 // Max age for posts (24 hours)
 const MAX_POST_AGE_MS = 24 * 60 * 60 * 1000;
 
-// Create parser with custom headers to avoid 403
-const parser = new Parser({
-    headers: {
-        'User-Agent': REDDIT_USER_AGENT,
-        'Accept': 'application/rss+xml, application/xml, text/xml',
-    },
-    timeout: 10000,
-});
+// Arctic Shift JSON API response types (Reddit mirror)
+interface RedditListing {
+    data: RedditPost[];
+}
+
+interface RedditPost {
+    id: string;
+    title: string;
+    selftext: string;
+    author: string;
+    subreddit: string;
+    permalink: string;
+    url: string;
+    created_utc: number;
+    is_self: boolean;
+}
 
 // Check if post is fresh (< 24h old)
-function isPostFresh(postedAt: string | null): boolean {
-    if (!postedAt) return true;
-    const postDate = new Date(postedAt);
+function isPostFresh(createdUtc: number): boolean {
+    const postDate = new Date(createdUtc * 1000);
     const now = new Date();
     return (now.getTime() - postDate.getTime()) < MAX_POST_AGE_MS;
 }
 
-// Check if content is just Reddit RSS boilerplate
+// Extract a consistent source ID from Reddit post
+function getSourceId(post: RedditPost): string {
+    if (post.id) return post.id;
+    const hash = createHash('sha256').update(post.permalink).digest('hex');
+    return `reddit_${hash.substring(0, 12)}`;
+}
+
+// Fetch posts from a single subreddit using Arctic Shift mirror
+// This bypasses GitHub Actions IP blocks that affect direct Reddit API
+async function fetchSubreddit(subreddit: string): Promise<RawPost[]> {
+    // Arctic Shift mirror - escapes GitHub Actions IP blocks
+    const url = `https://arctic-shift.photon-reddit.com/api/posts/search?subreddit=${subreddit}&limit=25`;
+
+    let response: Response;
+    try {
+        response = await fetch(url, {
+            headers: {
+                'User-Agent': 'SidequestBot/1.3 (https://sidequest.dev)',
+                'Accept': 'application/json',
+            },
+            signal: AbortSignal.timeout(12000),
+        });
+    } catch (error) {
+        console.error(`❌ r/${subreddit}: network error – ${(error as Error).message}`);
+        return [];
+    }
+
+    if (!response.ok) {
+        console.error(`❌ r/${subreddit}: HTTP ${response.status} ${response.statusText}`);
+        return [];
+    }
+
+    let listing: RedditListing;
+    try {
+        listing = await response.json() as RedditListing;
+    } catch (error) {
+        console.error(`❌ r/${subreddit}: failed to parse JSON – ${(error as Error).message}`);
+        return [];
+    }
+
+    const posts = listing?.data;
+    if (!posts || posts.length === 0) {
+        console.warn(`⚠️  r/${subreddit}: empty listing (possible IP block or empty sub)`);
+        return [];
+    }
+
+    return posts.map((post) => ({
+        source: 'reddit' as const,
+        sourceId: getSourceId(post),
+        sourceUrl: `https://www.reddit.com${post.permalink}`,
+        title: post.title || '',
+        // Use selftext for text posts; link posts have no body
+        content: post.is_self && post.selftext && post.selftext !== '[removed]'
+            ? post.selftext
+            : null,
+        author: post.author || null,
+        subreddit,
+        postedAt: new Date(post.created_utc * 1000).toISOString(),
+    }));
+}
+
+// Check if content is just Reddit boilerplate (less common with Arctic Shift but keep for safety)
 function isBoilerplateContent(content: string | null): boolean {
     if (!content) return true;
     const text = content.toLowerCase().trim();
@@ -36,38 +101,6 @@ function isBoilerplateContent(content: string | null): boolean {
     const hasBoilerplate = boilerplatePatterns.some((p) => text.includes(p));
     const isShort = text.length < 150;
     return hasBoilerplate && isShort;
-}
-
-// Fetch posts from a single subreddit via RSS only
-async function fetchSubreddit(subreddit: string): Promise<RawPost[]> {
-    try {
-        const url = `https://www.reddit.com/r/${subreddit}/new/.rss`;
-        const feed = await parser.parseURL(url);
-
-        return feed.items.map((item) => ({
-            source: 'reddit' as const,
-            sourceId: extractRedditId(item.link || ''),
-            sourceUrl: item.link || '',
-            title: item.title || '',
-            content: item.contentSnippet || item.content || null,
-            author: item.creator || item.author || null,
-            subreddit,
-            postedAt: item.pubDate || null,
-        }));
-    } catch (error) {
-        console.error(`Failed to fetch r/${subreddit}:`, error);
-        return [];
-    }
-}
-
-// Extract Reddit post ID from URL
-function extractRedditId(url: string): string {
-    const match = url.match(/\/comments\/([a-z0-9]+)/i);
-    if (match) return match[1];
-
-    // Safe fallback: use hash instead of raw URL
-    const hash = createHash('sha256').update(url).digest('hex');
-    return `reddit_${hash.substring(0, 12)}`;
 }
 
 // Enriched post with professions and AI analysis
@@ -95,16 +128,17 @@ export async function fetchRedditPosts(): Promise<EnrichedPost[]> {
         Number.parseInt(process.env.SIDEQUEST_MAX_SUBREDDITS || '20', 10) || 20
     );
     const subreddits = getAllSubreddits().slice(0, maxSubreddits);
-    console.log(`📡 Fetching from ${subreddits.length} subreddits via RSS...`);
+    console.log(`📡 Fetching from ${subreddits.length} subreddits via Arctic Shift API...`);
 
     const allPosts: RawPost[] = [];
 
     for (const subreddit of subreddits) {
         const posts = await fetchSubreddit(subreddit);
+        console.log(`   r/${subreddit}: ${posts.length} posts`);
         allPosts.push(...posts);
 
         // Small delay to avoid rate limiting
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 600));
     }
 
     console.log(`📥 Fetched ${allPosts.length} total posts from Reddit`);
@@ -115,8 +149,12 @@ export async function fetchRedditPosts(): Promise<EnrichedPost[]> {
     );
     console.log(`✂️ Filtered out ${allPosts.length - postsWithContent.length} posts with empty/boilerplate content`);
 
-    // Step 2: Filter by time (< 24h old)
-    const freshPosts = postsWithContent.filter(post => isPostFresh(post.postedAt));
+    // Step 2: Filter by time (< 24h old) - already filtered by Arctic Shift but double-check
+    const freshPosts = postsWithContent.filter(post => {
+        if (!post.postedAt) return false;
+        const postTime = new Date(post.postedAt).getTime() / 1000;
+        return isPostFresh(postTime);
+    });
     console.log(`⏰ ${freshPosts.length} posts are fresh (< 24h old)`);
 
     // Step 3: Apply negative filters
@@ -203,9 +241,10 @@ export async function fetchPostsByProfession(professionKey: string): Promise<Enr
 
     for (const subreddit of profession.subreddits) {
         const posts = await fetchSubreddit(subreddit);
+        console.log(`   r/${subreddit}: ${posts.length} posts`);
         allPosts.push(...posts);
 
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 600));
     }
 
     console.log(`📥 Fetched ${allPosts.length} total posts for ${profession.name}`);
@@ -214,7 +253,11 @@ export async function fetchPostsByProfession(professionKey: string): Promise<Enr
         post.title?.trim() && !isBoilerplateContent(post.content)
     );
 
-    const freshPosts = postsWithContent.filter(post => isPostFresh(post.postedAt));
+    const freshPosts = postsWithContent.filter(post => {
+        if (!post.postedAt) return false;
+        const postTime = new Date(post.postedAt).getTime() / 1000;
+        return isPostFresh(postTime);
+    });
 
     const validPosts = freshPosts.filter(post => !shouldFilterPost(post.title, post.content || ''));
 

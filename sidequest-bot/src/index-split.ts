@@ -2,6 +2,8 @@
 /**
  * SideQuest Bot - Split Config Version
  * Usage: CONFIG=01 npm start
+ * 
+ * Uses Arctic Shift API to bypass GitHub Actions IP blocks
  */
 
 import { createClient } from '@libsql/client';
@@ -15,7 +17,6 @@ const { config, validateConfig, getAllSubreddits, shouldFilterPost } = configMod
 const professions = configModule.professions;
 
 // Import other modules
-import Parser from 'rss-parser';
 import { createHash } from 'crypto';
 import { categorizePost, generateSummary } from './ai/categorizer.js';
 import { filterByHiringIntent } from './ai/intent-detector.js';
@@ -33,20 +34,27 @@ import {
     completeSidequestRunFailure,
 } from './db/turso.js';
 
-const REDDIT_USER_AGENT = `script:fnworks.sidequest-bot-${CONFIG_NUM}:v1.2 (by /u/fnworks-dev)`;
 const MAX_POST_AGE_MS = 24 * 60 * 60 * 1000;
 
-const parser = new Parser({
-    headers: {
-        'User-Agent': REDDIT_USER_AGENT,
-        'Accept': 'application/rss+xml, application/xml, text/xml',
-    },
-    timeout: 10000,
-});
+// Arctic Shift JSON API response types
+interface RedditListing {
+    data: RedditPost[];
+}
 
-function isPostFresh(postedAt: string | null): boolean {
-    if (!postedAt) return true;
-    const postDate = new Date(postedAt);
+interface RedditPost {
+    id: string;
+    title: string;
+    selftext: string;
+    author: string;
+    subreddit: string;
+    permalink: string;
+    url: string;
+    created_utc: number;
+    is_self: boolean;
+}
+
+function isPostFresh(createdUtc: number): boolean {
+    const postDate = new Date(createdUtc * 1000);
     const now = new Date();
     return (now.getTime() - postDate.getTime()) < MAX_POST_AGE_MS;
 }
@@ -60,31 +68,61 @@ function isBoilerplateContent(content: string | null): boolean {
     return hasBoilerplate && isShort;
 }
 
-function extractRedditId(url: string): string {
-    const match = url.match(/\/comments\/([a-z0-9]+)/i);
-    if (match) return match[1];
-    const hash = createHash('sha256').update(url).digest('hex');
+function getSourceId(post: RedditPost): string {
+    if (post.id) return post.id;
+    const hash = createHash('sha256').update(post.permalink).digest('hex');
     return `reddit_${hash.substring(0, 12)}`;
 }
 
+// Fetch posts from Arctic Shift mirror (bypasses GitHub Actions IP blocks)
 async function fetchSubreddit(subreddit: string): Promise<RawPost[]> {
+    const url = `https://arctic-shift.photon-reddit.com/api/posts/search?subreddit=${subreddit}&limit=25`;
+
+    let response: Response;
     try {
-        const url = `https://www.reddit.com/r/${subreddit}/new/.rss`;
-        const feed = await parser.parseURL(url);
-        return feed.items.map((item) => ({
-            source: 'reddit' as const,
-            sourceId: extractRedditId(item.link || ''),
-            sourceUrl: item.link || '',
-            title: item.title || '',
-            content: item.contentSnippet || item.content || null,
-            author: item.creator || item.author || null,
-            subreddit,
-            postedAt: item.pubDate || null,
-        }));
+        response = await fetch(url, {
+            headers: {
+                'User-Agent': `SidequestBot-${CONFIG_NUM}/1.3 (https://sidequest.dev)`,
+                'Accept': 'application/json',
+            },
+            signal: AbortSignal.timeout(12000),
+        });
     } catch (error) {
-        console.error(`Failed to fetch r/${subreddit}:`, (error as Error).message);
+        console.error(`[Bot-${CONFIG_NUM}] ❌ r/${subreddit}: network error – ${(error as Error).message}`);
         return [];
     }
+
+    if (!response.ok) {
+        console.error(`[Bot-${CONFIG_NUM}] ❌ r/${subreddit}: HTTP ${response.status} ${response.statusText}`);
+        return [];
+    }
+
+    let listing: RedditListing;
+    try {
+        listing = await response.json() as RedditListing;
+    } catch (error) {
+        console.error(`[Bot-${CONFIG_NUM}] ❌ r/${subreddit}: failed to parse JSON – ${(error as Error).message}`);
+        return [];
+    }
+
+    const posts = listing?.data;
+    if (!posts || posts.length === 0) {
+        console.warn(`[Bot-${CONFIG_NUM}] ⚠️  r/${subreddit}: empty listing`);
+        return [];
+    }
+
+    return posts.map((post) => ({
+        source: 'reddit' as const,
+        sourceId: getSourceId(post),
+        sourceUrl: `https://www.reddit.com${post.permalink}`,
+        title: post.title || '',
+        content: post.is_self && post.selftext && post.selftext !== '[removed]'
+            ? post.selftext
+            : null,
+        author: post.author || null,
+        subreddit,
+        postedAt: new Date(post.created_utc * 1000).toISOString(),
+    }));
 }
 
 interface EnrichedPost extends RawPost {
@@ -104,13 +142,14 @@ interface EnrichedPost extends RawPost {
 
 async function fetchRedditPosts(): Promise<EnrichedPost[]> {
     const subreddits = getAllSubreddits();
-    console.log(`[Bot-${CONFIG_NUM}] 📡 Fetching from ${subreddits.length} subreddits via RSS...`);
+    console.log(`[Bot-${CONFIG_NUM}] 📡 Fetching from ${subreddits.length} subreddits via Arctic Shift...`);
 
     const allPosts: RawPost[] = [];
     for (const subreddit of subreddits) {
         const posts = await fetchSubreddit(subreddit);
+        console.log(`[Bot-${CONFIG_NUM}]    r/${subreddit}: ${posts.length} posts`);
         allPosts.push(...posts);
-        await new Promise((resolve) => setTimeout(resolve, 1000)); // 1s delay between requests
+        await new Promise((resolve) => setTimeout(resolve, 600)); // 600ms delay between requests
     }
 
     console.log(`[Bot-${CONFIG_NUM}] 📥 Fetched ${allPosts.length} total posts`);
@@ -120,7 +159,11 @@ async function fetchRedditPosts(): Promise<EnrichedPost[]> {
     );
     console.log(`[Bot-${CONFIG_NUM}] ✂️ Filtered: ${allPosts.length - postsWithContent.length} empty/boilerplate`);
 
-    const freshPosts = postsWithContent.filter(post => isPostFresh(post.postedAt));
+    const freshPosts = postsWithContent.filter(post => {
+        if (!post.postedAt) return false;
+        const postTime = new Date(post.postedAt).getTime() / 1000;
+        return isPostFresh(postTime);
+    });
     console.log(`[Bot-${CONFIG_NUM}] ⏰ Fresh posts: ${freshPosts.length}`);
 
     const validPosts = freshPosts.filter(post => !shouldFilterPost(post.title, post.content || ''));
@@ -151,7 +194,7 @@ async function fetchRedditPosts(): Promise<EnrichedPost[]> {
                 });
             }
         } catch (error) {
-            console.error(`Failed to categorize: ${post.title.slice(0, 50)}...`, error);
+            console.error(`[Bot-${CONFIG_NUM}] Failed to categorize: ${post.title.slice(0, 50)}...`, error);
         }
         await new Promise((resolve) => setTimeout(resolve, 500));
     }
