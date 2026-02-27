@@ -8,6 +8,7 @@ on:
 
 jobs:
   run-bot:
+    if: github.repository == 'fnworks-dev/github-action-bot'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 

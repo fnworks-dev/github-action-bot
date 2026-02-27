@@ -5,6 +5,7 @@ on:
 
 jobs:
   legacy-disabled:
+    if: github.repository == 'fnworks-dev/github-action-bot'
     runs-on: ubuntu-latest
 
     steps:

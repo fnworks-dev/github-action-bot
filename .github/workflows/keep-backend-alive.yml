@@ -10,6 +10,7 @@ on:
 
 jobs:
   keep-alive:
+    if: github.repository == 'fnworks-dev/github-action-bot'
     runs-on: ubuntu-latest
     steps:
       - name: Ping Backend Health Endpoint (Multiple attempts)

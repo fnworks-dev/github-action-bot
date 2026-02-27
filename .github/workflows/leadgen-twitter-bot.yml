@@ -8,6 +8,7 @@ on:
 
 jobs:
   run-twitter-bot:
+    if: github.repository == 'fnworks-dev/github-action-bot'
     runs-on: ubuntu-latest
 
     steps:
