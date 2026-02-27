@@ -141,6 +141,33 @@ export async function initDb(): Promise<void> {
             );
 
             console.log('✅ Database initialized');
+
+            // Migration: Add bot_config column to existing tables (no-op if already exists)
+            try {
+                await db.execute({
+                    sql: `ALTER TABLE job_posts ADD COLUMN bot_config TEXT`,
+                    args: [],
+                });
+                console.log('✅ Migration: added bot_config column');
+            } catch (err) {
+                // Column likely already exists, ignore error
+                const error = err as Error;
+                if (error.message?.includes('duplicate column') || error.message?.includes('already exists')) {
+                    console.log('ℹ️  bot_config column already exists');
+                } else {
+                    console.warn('⚠️  Migration warning:', error.message);
+                }
+            }
+
+            // Migration: Add index for bot_config (no-op if already exists)
+            try {
+                await db.execute({
+                    sql: `CREATE INDEX IF NOT EXISTS idx_job_posts_bot_config ON job_posts(bot_config)`,
+                    args: [],
+                });
+            } catch (err) {
+                // Ignore index errors
+            }
         },
         {
             maxAttempts: 3,
