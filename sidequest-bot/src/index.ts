@@ -4,6 +4,7 @@ import {
     jobExists,
     insertJob,
     getStats,
+    getStatsByBotConfig,
     deleteOldPosts,
     getLatestJobCreatedAt,
     startSidequestRun,
@@ -45,13 +46,14 @@ async function processPost(post: EnrichedPost): Promise<boolean> {
         console.log(`   Tech: ${post.analysis.tech_stack.join(', ')}`);
     }
 
-    // Insert into database with analysis
+    // Insert into database with analysis (tagged as 'full' for legacy runs)
     await insertJob(
         post,
         post.professions,
         null, // score - not used for job board
         post.summary,
-        post.analysis
+        post.analysis,
+        'full'
     );
 
     return true;
@@ -322,6 +324,14 @@ async function main() {
         console.log(`   Total jobs: ${finalStats.total}`);
         console.log(`   By status: new=${finalStats.byStatus.new}, processed=${finalStats.byStatus.processed}, archived=${finalStats.byStatus.archived}`);
         console.log(`   Latest created_at after run: ${latestAfter ?? 'NULL'}`);
+
+        // Show bot config distribution
+        console.log('');
+        console.log('📊 Jobs by bot config:');
+        const botStats = await getStatsByBotConfig();
+        for (const [config, count] of Object.entries(botStats)) {
+            console.log(`   Bot-${config}: ${count} jobs`);
+        }
         console.log('');
 
         await verifyFreshnessOrThrow(latestAfter, staleFailHours);

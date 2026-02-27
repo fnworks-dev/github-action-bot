@@ -84,6 +84,9 @@ export interface JobPost {
     // Tracking
     status: JobStatus;
 
+    // Bot tracking - which bot config found this job (01, 02, 03, 04)
+    botConfig: string | null;
+
     // Timestamps
     postedAt: string | null;
     createdAt: string;

@@ -105,6 +105,8 @@ export async function initDb(): Promise<void> {
                         posted_at TEXT,
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                         updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        -- Bot tracking
+                        bot_config TEXT,
                         -- AI Analysis fields
                         project_type TEXT,
                         tech_stack TEXT,
@@ -335,7 +337,8 @@ export async function insertJob(
         budget_signal: string | null;
         red_flags: string[];
         green_flags: string[];
-    }
+    },
+    botConfig?: string | null
 ): Promise<string> {
     return retryWithBackoff(
         async () => {
@@ -346,9 +349,9 @@ export async function insertJob(
                 sql: `
                     INSERT INTO job_posts (
                         id, source, source_id, source_url, title, content, author, subreddit,
-                        professions, score, summary, posted_at,
+                        professions, score, summary, posted_at, bot_config,
                         project_type, tech_stack, scope, timeline_signal, budget_signal, red_flags, green_flags
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `,
                 args: [
                     id,
@@ -363,6 +366,7 @@ export async function insertJob(
                     score,
                     summary,
                     post.postedAt,
+                    botConfig || null,
                     // Analysis fields
                     analysis?.project_type || null,
                     analysis?.tech_stack ? JSON.stringify(analysis.tech_stack) : null,
@@ -435,6 +439,7 @@ export async function getJobs(status?: JobStatus): Promise<JobPost[]> {
         score: row.score as number | null,
         summary: row.summary as string | null,
         status: row.status as JobStatus,
+        botConfig: row.bot_config as string | null,
         postedAt: row.posted_at as string | null,
         createdAt: row.created_at as string,
         updatedAt: row.updated_at as string,
@@ -475,10 +480,35 @@ export async function getJobsByProfession(profession: Profession, status?: JobSt
         score: row.score as number | null,
         summary: row.summary as string | null,
         status: row.status as JobStatus,
+        botConfig: row.bot_config as string | null,
         postedAt: row.posted_at as string | null,
         createdAt: row.created_at as string,
         updatedAt: row.updated_at as string,
     }));
+}
+
+// Get stats by bot config
+export async function getStatsByBotConfig(): Promise<Record<string, number>> {
+    const db = getDb();
+
+    const result = await db.execute({
+        sql: `
+            SELECT bot_config, COUNT(*) as count
+            FROM job_posts
+            WHERE bot_config IS NOT NULL
+            GROUP BY bot_config
+            ORDER BY count DESC
+        `,
+        args: [],
+    });
+
+    const stats: Record<string, number> = {};
+    for (const row of result.rows) {
+        const config = row.bot_config as string;
+        stats[config] = (row.count as number) || 0;
+    }
+
+    return stats;
 }
 
 // Delete old posts (30-day cleanup)
