@@ -26,7 +26,6 @@ import {
     jobExists,
     insertJob,
     getStats,
-    getStatsByBotConfig,
     deleteOldPosts,
     getLatestJobCreatedAt,
     startSidequestRun,
@@ -214,7 +213,7 @@ async function processJobs(): Promise<{ fetched: number; newJobs: number }> {
         if (exists) continue;
 
         console.log(`[Bot-${CONFIG_NUM}] 📝 New job: ${post.title.slice(0, 60)}...`);
-        await insertJob(post, post.professions, null, post.summary, post.analysis, CONFIG_NUM);
+        await insertJob(post, post.professions, null, post.summary, post.analysis);
         newJobsCount++;
     }
 
@@ -257,13 +256,6 @@ async function main() {
             console.log(`[Bot-${CONFIG_NUM}] 🧹 Running cleanup...`);
             const deleted = await deleteOldPosts();
             console.log(`[Bot-${CONFIG_NUM}] 🗑️ Deleted ${deleted} old posts`);
-
-            // Show bot config distribution
-            console.log(`[Bot-${CONFIG_NUM}] 📊 Jobs by bot config:`);
-            const botStats = await getStatsByBotConfig();
-            for (const [config, count] of Object.entries(botStats)) {
-                console.log(`   Bot-${config}: ${count} jobs`);
-            }
         }
 
         const duration = Date.now() - startedAt;
