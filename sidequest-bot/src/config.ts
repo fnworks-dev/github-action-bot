@@ -54,15 +54,25 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'looking for programmer', 'need programmer',
         ],
         subreddits: [
+            // Hiring-focused (primary)
             'forhire',
             'freelance_forhire',
             'webdev',
+            'gamedev',              // 🎮 Major game dev hiring hub
+            'gameDevClassifieds',
+
+            // Tech-specific communities
             'reactjs',
             'javascript',
             'python',
+            'rust',                 // 🦀 Growing Rust community
+            'golang',               // 🐹 Go developers
+            'node',                 // 🟢 Node.js
             'coding',
-            'learnprogramming',
-            'programming',
+            'Frontend',             // 💻 Frontend focus
+            'androiddev',           // 📱 Android
+            'iOSProgramming',       // 🍎 iOS
+            'PHP',                  // 🐘 WordPress/PHP
         ],
     },
 
@@ -100,6 +110,7 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'DesignJobs',
             'logo_requests',
             'gameDevClassifieds',
+            'INAT',                 // 🎮 "I Need A Team" - game dev collab
 
             // Art communities (secondary - may have hiring posts)
             'graphic_design',
@@ -114,6 +125,9 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'UnitLost',
             'conceptart',
             'specart',
+            'pixelart',             // 🎮 Pixel artists
+            '3Dmodeling',           // 🎨 3D artists
+            'Blender',              // 🎨 Blender community
         ],
     },
 
@@ -144,6 +158,7 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'recordthis',
             'audiobookcreation',
             'freelance_forhire',
+            'gameDevClassifieds',   // 🎮 Game VA hiring
 
             // Voice communities (secondary - may have hiring posts)
             'audiobooks',
@@ -154,6 +169,8 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'AudiobookBillingual',
             'audiobook',
             'voiceacting101',
+            'indiegames',           // 🎮 Indie game VA needs
+            'gamedev',              // 🎮 Game dev VA
         ],
     },
 
@@ -197,10 +214,13 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'filmmakers',
             'MotionDesign',
             'vfx',
-            'youtubers',
+            'youtubers',            // 📺 YouTube editor demand
             'SmallYTChannel',
             'youtubeviews',
             'youtube_startups',
+            'ContentCreators',      // 📺 Creator economy
+            'Premiere',             // 🎬 Adobe Premiere editors
+            'AfterEffects',         // ✨ Motion graphics
         ],
     },
 
@@ -233,19 +253,22 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'copywriting',
             'freelance_forhire',
             'gameDevClassifieds',
+            'freelance',            // ✍️ General freelance writing
 
             // Writing communities (secondary - may have hiring posts)
             'writing',
             'screenwriting',
             'writers',
             'WritersGroup',
-            'ContentMarketing',
+            'ContentMarketing',     // 📢 Marketing copy
             'scriptwriting',
             'ghostwriting',
             'technicalwriting',
             'blogwriting',
             'editmywriting',
             'writingclub',
+            'selfpublish',          // 📚 Book editing/formatting
+            'marketing',            // 📢 Copywriting gigs
         ],
     },
 
@@ -281,6 +304,7 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'thisismycomposer',
             'freelance_forhire',
             'gameDevClassifieds',
+            'indiegames',           // 🎮 Indie game audio
 
             // Audio communities (secondary - may have hiring posts)
             'audio',
@@ -290,8 +314,9 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'EDMproduction',
             'beatmaker',
             'producers',
-            'WeAreTheMusicMakers',
+            'WeAreTheMusicMakers',  // 🎵 Active music community
             'synthrecipes',
+            'gamedev',              // 🎮 Game dev audio needs
         ],
     },
 
@@ -325,6 +350,8 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'testautomation',
             'manualtesting',
             'gamedevtesting',
+            'softwaretesting',      // 🐛 General QA
+            'gamedev',              // 🎮 Game QA/Playtesters
         ],
     },
 
@@ -360,9 +387,11 @@ export const professions: Record<Profession, ProfessionConfig> = {
             // VA communities (secondary - may have hiring posts)
             'virtual_assistant',
             'administrative',
-            'remotework',
+            'remotework',           // 💼 Remote VA work
             'hireme',
             'jobsbit4',
+            'workonline',           // 💻 Online work
+            'digitalnomad',         // 🌏 DN-friendly VA
         ],
     },
 };
@@ -415,6 +444,68 @@ export const negativeFilters = [
     'reddit comment',
     'reddit account',
     'upvote',
+
+    // ========== TIGHTENED FILTERS ==========
+    
+    // Advice seeking (not hiring)
+    'need advise',
+    'need advice',
+    'looking for advice',
+    'looking for advise',
+    'recommendations for',
+    'recommendations pls',
+    'recommendations please',
+    'struggling with',
+    'help me decide',
+    'what do you recommend',
+    'any recommendations',
+    'any advice',
+    'guide me',
+    'suggestions for',
+    
+    // Vague "looking for" without clear job context
+    'looking for packaging',
+    'looking for tips',
+    'looking for guidance',
+    
+    // Sales/Commission spam (MLM, referrals) - TIGHTENED to avoid art "commission" false positives
+    'earn ₹',
+    'earn rs',
+    '% commission',           // NOT just "commission" - art world uses "commission" for custom work
+    'percent commission',
+    'referral program',
+    'affiliate program',
+    'for every business you close',
+    'for every sale',
+    'for every referral',
+    'earn between',
+    'make money online',
+    'side hustle',
+    'passive income',
+    
+    // Empty/low effort posts
+    '[hiring] ->',
+    '[hiring] -',
+    'go to ',
+    'check out r/',
+    'try r/',
+    'post this in',
+    'wrong sub',
+    'wrong subreddit',
+    
+    // Handover/Selling (not job hiring)
+    'handover my',
+    'hand over my',
+    'sell my',
+    'selling my',
+    'transfer my',
+    'looking for buyer',
+    'looking for someone to buy',
+    
+    // Navigation spam
+    'r/smallbusiness',
+    'r/entrepreneur',
+    'r/startups',
 ];
 
 // Get all unique subreddits across all professions

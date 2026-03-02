@@ -59,7 +59,15 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'data entry', 'email management', 'customer support',
             'looking for virtual assistant', 'need va', 'va needed',
         ],
-        subreddits: ['forhire', 'virtualassistant', 'freelance_forhire', 'admin'],
+        subreddits: [
+            'forhire',
+            'virtualassistant',
+            'freelance_forhire',
+            'admin',
+            'remotework',
+            'workonline',
+            'digitalnomad',
+        ],
     },
 };
 

@@ -6,18 +6,22 @@ import type { IntentDetectionResult, RawPost } from '../types.js';
  * Determines if a post is actually offering paid work or hiring.
  */
 
-const INTENT_PROMPT = `You are a job intent detector. Your task is to determine if a post is offering paid work or hiring someone.
+const INTENT_PROMPT = `You are a STRICT job intent detector. Be AGGRESSIVE in rejecting non-job posts. Your task is to determine if a post is TRULY offering paid work or hiring someone for a specific task/project.
 
-A post IS a job if it shows:
-- Clear hiring language: "looking for [profession]", "hiring", "seeking", "need [profession]"
-- Asking for paid work or tasks to be done
-- Offering compensation, budget, or collaboration for work
+A post IS a job ONLY if it shows ALL of these:
+- Clear hiring intent: "looking for [profession]", "hiring", "seeking", "need [profession]" to DO WORK
+- Specific work to be done (build X, design Y, write Z)
+- The poster is the employer/client, not selling something
 
-A post is NOT a job if it:
-- Seeks advice, opinions, or recommendations ("any recommendations?", "thoughts on?", "what do you think?")
-- Discusses products, gear, or tools ("any love for X?", "experience with X?")
-- Shares work for feedback ("just launched", "I released", "thoughts after", "lessons learned")
-- Is casual conversation without hiring intent
+A post is NOT a job (REJECT these aggressively):
+- Seeks advice, recommendations, tips, or opinions ("need advice on", "recommendations?", "thoughts on?", "struggling with", "how do I")
+- Looking to SELL/TRANSFER something ("handover my", "sell my SaaS", "looking for buyer")
+- Commission/sales schemes ("earn ₹", "earn $", "% commission", "for every business you close")
+- Navigation spam ("go to r/", "check out r/", "post this in", "wrong sub")
+- Empty/low effort (title only "[Hiring]" with no content)
+- Vague "looking for" without clear job context ("looking for packaging" - packaging of what?)
+- MLM, referral programs, affiliate marketing
+- Casual conversation, surveys, or feedback requests
 
 POST TO ANALYZE:
 Title: {title}
@@ -62,21 +66,36 @@ function keywordIntentCheck(title: string, content: string | null): IntentDetect
         'wanted',
     ];
 
-    // Negative signals (NOT hiring)
+    // Negative signals (NOT hiring) - TIGHTENED
     const negativeSignals = [
-        // Advice-seeking
+        // Advice-seeking (EXPANDED)
         'any recommendations',
         'recommendations for',
+        'recommendations pls',
+        'recommendations please',
         'thoughts on',
         'opinions on',
         'what do you think',
         'any advice',
+        'any advise',
+        'need advise',
+        'need advice',
         'help me decide',
         'i need some advice',
         'looking for advice',
+        'looking for advise',
         'need advice on',
+        'need advise on',
         'looking for opinions',
-
+        'struggling with',
+        'struggling to',
+        'suggestions for',
+        'suggestions on',
+        'guide me',
+        'tips for',
+        'looking for tips',
+        'looking for guidance',
+        
         // Product discussions
         'any love for',
         'experience with',
@@ -98,6 +117,48 @@ function keywordIntentCheck(title: string, content: string | null): IntentDetect
         'anyone using',
         'how do you',
         'how to',
+        
+        // Sales/Commission schemes (TIGHTENED to avoid art "commission" false positives)
+        'earn ₹',
+        'earn rs',
+        '% commission',           // NOT just "commission" - art world uses "commission" for custom work
+        'percent commission',
+        'for every business you close',
+        'for every sale',
+        'for every referral',
+        'referral program',
+        'affiliate program',
+        'mlm',
+        'multi-level',
+        'passive income',
+        'make money online',
+        'side hustle',
+        
+        // Selling/Transferring (NOT hiring) (NEW)
+        'handover my',
+        'hand over my',
+        'sell my',
+        'selling my',
+        'transfer my',
+        'looking for buyer',
+        'looking for someone to buy',
+        
+        // Navigation spam (NEW)
+        'go to r/',
+        'check out r/',
+        'try r/',
+        'post this in',
+        'wrong sub',
+        'wrong subreddit',
+        'go to smallbusiness',
+        'check out smallbusiness',
+        
+        // Empty/low effort (NEW)
+        '[hiring] ->',
+        '[hiring] -',
+        
+        // Vague "looking for" without context (NEW)
+        'looking for packaging',
     ];
 
     // Check negative signals first (they override positive)
