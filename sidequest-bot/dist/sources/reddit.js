@@ -20,53 +20,62 @@ function getSourceId(post) {
 }
 // Fetch posts from a single subreddit using Arctic Shift mirror
 // This bypasses GitHub Actions IP blocks that affect direct Reddit API
-async function fetchSubreddit(subreddit) {
+async function fetchSubreddit(subreddit, retries = 2) {
     // Arctic Shift mirror - escapes GitHub Actions IP blocks
     const url = `https://arctic-shift.photon-reddit.com/api/posts/search?subreddit=${subreddit}&limit=25`;
-    let response;
-    try {
-        response = await fetch(url, {
-            headers: {
-                'User-Agent': 'SidequestBot/1.3 (https://sidequest.dev)',
-                'Accept': 'application/json',
-            },
-            signal: AbortSignal.timeout(12000),
-        });
+    for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+            const response = await fetch(url, {
+                headers: {
+                    'User-Agent': 'SidequestBot/1.3 (https://sidequest.dev)',
+                    'Accept': 'application/json',
+                },
+                signal: AbortSignal.timeout(12000),
+            });
+            if (!response.ok) {
+                // Retry on 5xx errors or rate limit (429)
+                if ((response.status >= 500 || response.status === 429) && attempt < retries) {
+                    const delay = Math.pow(2, attempt) * 1000; // 1s, 2s
+                    console.warn(`⚠️  r/${subreddit}: HTTP ${response.status}, retrying in ${delay}ms...`);
+                    await new Promise(r => setTimeout(r, delay));
+                    continue;
+                }
+                console.error(`❌ r/${subreddit}: HTTP ${response.status} ${response.statusText}`);
+                return [];
+            }
+            const listing = await response.json();
+            const posts = listing?.data;
+            if (!posts || posts.length === 0) {
+                console.warn(`⚠️  r/${subreddit}: empty listing`);
+                return [];
+            }
+            return posts.map((post) => ({
+                source: 'reddit',
+                sourceId: getSourceId(post),
+                sourceUrl: `https://www.reddit.com${post.permalink}`,
+                title: post.title || '',
+                content: post.is_self && post.selftext && post.selftext !== '[removed]'
+                    ? post.selftext
+                    : null,
+                author: post.author || null,
+                subreddit,
+                postedAt: new Date(post.created_utc * 1000).toISOString(),
+            }));
+        }
+        catch (error) {
+            const isTimeout = error.name === 'AbortError';
+            const isNetwork = !isTimeout;
+            if (isNetwork && attempt < retries) {
+                const delay = Math.pow(2, attempt) * 1000;
+                console.warn(`⚠️  r/${subreddit}: network error, retrying in ${delay}ms...`);
+                await new Promise(r => setTimeout(r, delay));
+                continue;
+            }
+            console.error(`❌ r/${subreddit}: ${isTimeout ? 'timeout' : 'network error'} – ${error.message}`);
+            return [];
+        }
     }
-    catch (error) {
-        console.error(`❌ r/${subreddit}: network error – ${error.message}`);
-        return [];
-    }
-    if (!response.ok) {
-        console.error(`❌ r/${subreddit}: HTTP ${response.status} ${response.statusText}`);
-        return [];
-    }
-    let listing;
-    try {
-        listing = await response.json();
-    }
-    catch (error) {
-        console.error(`❌ r/${subreddit}: failed to parse JSON – ${error.message}`);
-        return [];
-    }
-    const posts = listing?.data;
-    if (!posts || posts.length === 0) {
-        console.warn(`⚠️  r/${subreddit}: empty listing (possible IP block or empty sub)`);
-        return [];
-    }
-    return posts.map((post) => ({
-        source: 'reddit',
-        sourceId: getSourceId(post),
-        sourceUrl: `https://www.reddit.com${post.permalink}`,
-        title: post.title || '',
-        // Use selftext for text posts; link posts have no body
-        content: post.is_self && post.selftext && post.selftext !== '[removed]'
-            ? post.selftext
-            : null,
-        author: post.author || null,
-        subreddit,
-        postedAt: new Date(post.created_utc * 1000).toISOString(),
-    }));
+    return []; // Should not reach here
 }
 // Check if content is just Reddit boilerplate (less common with Arctic Shift but keep for safety)
 function isBoilerplateContent(content) {
@@ -90,8 +99,8 @@ export async function fetchRedditPosts() {
         const posts = await fetchSubreddit(subreddit);
         console.log(`   r/${subreddit}: ${posts.length} posts`);
         allPosts.push(...posts);
-        // Small delay to avoid rate limiting
-        await new Promise((resolve) => setTimeout(resolve, 600));
+        // Small delay to avoid rate limiting (400ms = 8s for 20 subs, well within limits)
+        await new Promise((resolve) => setTimeout(resolve, 400));
     }
     console.log(`📥 Fetched ${allPosts.length} total posts from Reddit`);
     // Step 1: Filter out posts with empty content or title
@@ -135,7 +144,8 @@ export async function fetchRedditPosts() {
         catch (error) {
             console.error(`Failed to categorize post: ${post.title.slice(0, 50)}...`, error);
         }
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        // AI rate limiting (500ms = faster processing, still respectful)
+        await new Promise((resolve) => setTimeout(resolve, 500));
     }
     console.log(`✅ ${enrichedPosts.length} posts categorized with professions`);
     // Log profession distribution
@@ -214,7 +224,8 @@ export async function fetchPostsByProfession(professionKey) {
         catch (error) {
             console.error(`Failed to categorize post: ${post.title.slice(0, 50)}...`, error);
         }
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        // AI rate limiting (500ms = faster processing, still respectful)
+        await new Promise((resolve) => setTimeout(resolve, 500));
     }
     console.log(`✅ ${enrichedPosts.length} posts matched ${profession.name}`);
     return enrichedPosts;

@@ -37,6 +37,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
           CONFIG: '04'
+          SIDEQUEST_MAX_SUBREDDITS: '25'
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: npm run start:split
