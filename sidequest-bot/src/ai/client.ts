@@ -23,6 +23,28 @@ interface NvidiaNimResponse {
     }>;
 }
 
+const DEFAULT_TIMEOUT_MS = parsePositiveInt(process.env.SIDEQUEST_AI_TIMEOUT_MS, 15_000);
+const DEFAULT_MAX_ATTEMPTS = parsePositiveInt(process.env.SIDEQUEST_AI_MAX_ATTEMPTS, 2);
+const DEFAULT_RETRY_BASE_DELAY_MS = parsePositiveInt(process.env.SIDEQUEST_AI_RETRY_BASE_DELAY_MS, 1_500);
+const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
+
+class ProviderError extends Error {
+    constructor(
+        public readonly provider: string,
+        public readonly status: number | null,
+        public readonly retryable: boolean,
+        message: string
+    ) {
+        super(message);
+        this.name = 'ProviderError';
+    }
+}
+
+function parsePositiveInt(raw: string | undefined, fallback: number): number {
+    const parsed = Number.parseInt(raw || '', 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function sanitizeText(text: string): string {
     return text
         .replace(/<think\b[^>]*>[\s\S]*?(<\/think>|$)/gi, '')
@@ -59,62 +81,154 @@ function extractNvidiaNimText(data: NvidiaNimResponse): string | null {
     return null;
 }
 
-async function generateWithGemini(options: AITextOptions): Promise<string> {
-    const response = await fetch(`${config.ai.geminiUrl}?key=${config.ai.geminiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            contents: [{
-                parts: [{ text: options.prompt }]
-            }],
-            generationConfig: {
-                temperature: options.temperature,
-                maxOutputTokens: options.maxOutputTokens,
+function isAbortError(error: unknown): boolean {
+    return error instanceof Error && error.name === 'AbortError';
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getRetryDelayMs(attempt: number): number {
+    const jitter = Math.floor(Math.random() * 250);
+    return DEFAULT_RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1) + jitter;
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        return await fetch(url, {
+            ...init,
+            signal: controller.signal,
+        });
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+function toProviderError(provider: string, error: unknown): ProviderError {
+    if (error instanceof ProviderError) {
+        return error;
+    }
+
+    if (isAbortError(error)) {
+        return new ProviderError(provider, null, true, `${provider} request timed out after ${DEFAULT_TIMEOUT_MS}ms`);
+    }
+
+    const message = error instanceof Error ? error.message : String(error);
+    return new ProviderError(provider, null, true, `${provider} network error: ${message}`);
+}
+
+async function runProviderWithRetries(
+    provider: string,
+    taskLabel: string,
+    fn: () => Promise<string>
+): Promise<string> {
+    let lastError: ProviderError | null = null;
+
+    for (let attempt = 1; attempt <= DEFAULT_MAX_ATTEMPTS; attempt += 1) {
+        try {
+            console.log(`🤖 Using ${provider} for ${taskLabel} (attempt ${attempt}/${DEFAULT_MAX_ATTEMPTS})`);
+            return await fn();
+        } catch (error) {
+            const providerError = toProviderError(provider, error);
+            lastError = providerError;
+
+            console.warn(`⚠️ ${provider} failed for ${taskLabel}: ${providerError.message}`);
+
+            if (!providerError.retryable || attempt >= DEFAULT_MAX_ATTEMPTS) {
+                break;
             }
-        })
-    });
+
+            const delayMs = getRetryDelayMs(attempt);
+            console.log(`⏳ Retrying ${provider} for ${taskLabel} in ${delayMs}ms...`);
+            await sleep(delayMs);
+        }
+    }
+
+    throw lastError || new ProviderError(provider, null, false, `${provider} failed for ${taskLabel}`);
+}
+
+async function generateWithGemini(options: AITextOptions): Promise<string> {
+    let response: Response;
+
+    try {
+        response = await fetchWithTimeout(`${config.ai.geminiUrl}?key=${config.ai.geminiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [{ text: options.prompt }]
+                }],
+                generationConfig: {
+                    temperature: options.temperature,
+                    maxOutputTokens: options.maxOutputTokens,
+                }
+            })
+        }, DEFAULT_TIMEOUT_MS);
+    } catch (error) {
+        throw toProviderError('Gemini', error);
+    }
 
     if (!response.ok) {
         const errorText = await response.text().catch(() => '');
-        throw new Error(`Gemini API error: ${response.status} ${errorText.slice(0, 200)}`);
+        throw new ProviderError(
+            'Gemini',
+            response.status,
+            RETRYABLE_STATUS_CODES.has(response.status),
+            `Gemini API error: ${response.status} ${errorText.slice(0, 200)}`
+        );
     }
 
     const data = await response.json() as GeminiResponse;
     const text = extractGeminiText(data);
     if (!text) {
-        throw new Error('Gemini API returned empty content');
+        throw new ProviderError('Gemini', response.status, true, 'Gemini API returned empty content');
     }
 
     return text;
 }
 
 async function generateWithNvidiaNim(options: AITextOptions): Promise<string> {
-    const response = await fetch(config.ai.nvidiaNimUrl, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${config.ai.nvidiaNimKey}`,
-        },
-        body: JSON.stringify({
-            model: config.ai.nvidiaNimModel,
-            max_tokens: options.maxOutputTokens,
-            temperature: options.temperature,
-            messages: [{
-                role: 'user',
-                content: options.prompt,
-            }],
-        })
-    });
+    let response: Response;
+
+    try {
+        response = await fetchWithTimeout(config.ai.nvidiaNimUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${config.ai.nvidiaNimKey}`,
+            },
+            body: JSON.stringify({
+                model: config.ai.nvidiaNimModel,
+                max_tokens: options.maxOutputTokens,
+                temperature: options.temperature,
+                messages: [{
+                    role: 'user',
+                    content: options.prompt,
+                }],
+            })
+        }, DEFAULT_TIMEOUT_MS);
+    } catch (error) {
+        throw toProviderError('NVIDIA NIM', error);
+    }
 
     if (!response.ok) {
         const errorText = await response.text().catch(() => '');
-        throw new Error(`NVIDIA NIM API error: ${response.status} ${errorText.slice(0, 200)}`);
+        throw new ProviderError(
+            'NVIDIA NIM',
+            response.status,
+            RETRYABLE_STATUS_CODES.has(response.status),
+            `NVIDIA NIM API error: ${response.status} ${errorText.slice(0, 200)}`
+        );
     }
 
     const data = await response.json() as NvidiaNimResponse;
     const text = extractNvidiaNimText(data);
     if (!text) {
-        throw new Error('NVIDIA NIM API returned empty content');
+        throw new ProviderError('NVIDIA NIM', response.status, true, 'NVIDIA NIM API returned empty content');
     }
 
     return text;
@@ -123,25 +237,25 @@ async function generateWithNvidiaNim(options: AITextOptions): Promise<string> {
 export async function generateTextWithFallback(options: AITextOptions): Promise<string> {
     const errors: string[] = [];
 
-    if (config.ai.geminiKey) {
-        try {
-            console.log(`🤖 Using Gemini for ${options.taskLabel}`);
-            return await generateWithGemini(options);
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            errors.push(`Gemini: ${message}`);
-            console.warn(`⚠️ Gemini failed for ${options.taskLabel}:`, error);
-        }
-    }
-
     if (config.ai.nvidiaNimKey) {
         try {
-            console.log(`🤖 Using NVIDIA NIM fallback for ${options.taskLabel}`);
-            return await generateWithNvidiaNim(options);
+            return await runProviderWithRetries('NVIDIA NIM', options.taskLabel, () =>
+                generateWithNvidiaNim(options)
+            );
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             errors.push(`NVIDIA NIM: ${message}`);
-            console.warn(`⚠️ NVIDIA NIM failed for ${options.taskLabel}:`, error);
+        }
+    }
+
+    if (config.ai.geminiKey) {
+        try {
+            return await runProviderWithRetries('Gemini', options.taskLabel, () =>
+                generateWithGemini(options)
+            );
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            errors.push(`Gemini: ${message}`);
         }
     }
 

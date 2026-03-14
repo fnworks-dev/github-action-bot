@@ -140,6 +140,34 @@ interface EnrichedPost extends RawPost {
     };
 }
 
+const AI_STEP_DELAY_MS = 250;
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function enrichPost(post: RawPost): Promise<EnrichedPost | null> {
+    const categorization = await categorizePost(post.title, post.content);
+    await sleep(AI_STEP_DELAY_MS);
+
+    const summary = await generateSummary(post.title, post.content);
+    await sleep(AI_STEP_DELAY_MS);
+
+    const analysis = await analyzeJob(post.title, post.content);
+
+    if (categorization.professions.length === 0) {
+        return null;
+    }
+
+    return {
+        ...post,
+        professions: categorization.professions,
+        confidence: categorization.confidence,
+        summary,
+        analysis,
+    };
+}
+
 async function fetchRedditPosts(): Promise<EnrichedPost[]> {
     const subreddits = getAllSubreddits();
     console.log(`[Bot-${CONFIG_NUM}] 📡 Fetching from ${subreddits.length} subreddits via Arctic Shift...`);
@@ -178,20 +206,10 @@ async function fetchRedditPosts(): Promise<EnrichedPost[]> {
 
     for (const post of jobPosts) {
         try {
-            const [categorization, summary, analysis] = await Promise.all([
-                categorizePost(post.title, post.content),
-                generateSummary(post.title, post.content),
-                analyzeJob(post.title, post.content),
-            ]);
+            const enrichedPost = await enrichPost(post);
 
-            if (categorization.professions.length > 0) {
-                enrichedPosts.push({
-                    ...post,
-                    professions: categorization.professions,
-                    confidence: categorization.confidence,
-                    summary,
-                    analysis,
-                });
+            if (enrichedPost) {
+                enrichedPosts.push(enrichedPost);
             }
         } catch (error) {
             console.error(`[Bot-${CONFIG_NUM}] Failed to categorize: ${post.title.slice(0, 50)}...`, error);

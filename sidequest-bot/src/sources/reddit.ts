@@ -132,6 +132,34 @@ export interface EnrichedPost extends RawPost {
     };
 }
 
+const AI_STEP_DELAY_MS = 250;
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function enrichPost(post: RawPost): Promise<EnrichedPost | null> {
+    const categorization = await categorizePost(post.title, post.content);
+    await sleep(AI_STEP_DELAY_MS);
+
+    const summary = await generateSummary(post.title, post.content);
+    await sleep(AI_STEP_DELAY_MS);
+
+    const analysis = await analyzeJob(post.title, post.content);
+
+    if (categorization.professions.length === 0) {
+        return null;
+    }
+
+    return {
+        ...post,
+        professions: categorization.professions,
+        confidence: categorization.confidence,
+        summary,
+        analysis,
+    };
+}
+
 /**
  * Fetch all subreddits, filter, and categorize by profession
  */
@@ -185,20 +213,10 @@ export async function fetchRedditPosts(): Promise<EnrichedPost[]> {
 
     for (const post of jobPosts) {
         try {
-            const [categorization, summary, analysis] = await Promise.all([
-                categorizePost(post.title, post.content),
-                generateSummary(post.title, post.content),
-                analyzeJob(post.title, post.content),
-            ]);
+            const enrichedPost = await enrichPost(post);
 
-            if (categorization.professions.length > 0) {
-                enrichedPosts.push({
-                    ...post,
-                    professions: categorization.professions,
-                    confidence: categorization.confidence,
-                    summary,
-                    analysis,
-                });
+            if (enrichedPost) {
+                enrichedPosts.push(enrichedPost);
             }
         } catch (error) {
             console.error(`Failed to categorize post: ${post.title.slice(0, 50)}...`, error);
@@ -286,20 +304,10 @@ export async function fetchPostsByProfession(professionKey: string): Promise<Enr
 
     for (const post of jobPosts) {
         try {
-            const [categorization, summary, analysis] = await Promise.all([
-                categorizePost(post.title, post.content),
-                generateSummary(post.title, post.content),
-                analyzeJob(post.title, post.content),
-            ]);
+            const enrichedPost = await enrichPost(post);
 
-            if (categorization.professions.includes(professionKey as Profession)) {
-                enrichedPosts.push({
-                    ...post,
-                    professions: categorization.professions,
-                    confidence: categorization.confidence,
-                    summary,
-                    analysis,
-                });
+            if (enrichedPost?.professions.includes(professionKey as Profession)) {
+                enrichedPosts.push(enrichedPost);
             }
         } catch (error) {
             console.error(`Failed to categorize post: ${post.title.slice(0, 50)}...`, error);

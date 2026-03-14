@@ -87,6 +87,27 @@ function isBoilerplateContent(content) {
     const isShort = text.length < 150;
     return hasBoilerplate && isShort;
 }
+const AI_STEP_DELAY_MS = 250;
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function enrichPost(post) {
+    const categorization = await categorizePost(post.title, post.content);
+    await sleep(AI_STEP_DELAY_MS);
+    const summary = await generateSummary(post.title, post.content);
+    await sleep(AI_STEP_DELAY_MS);
+    const analysis = await analyzeJob(post.title, post.content);
+    if (categorization.professions.length === 0) {
+        return null;
+    }
+    return {
+        ...post,
+        professions: categorization.professions,
+        confidence: categorization.confidence,
+        summary,
+        analysis,
+    };
+}
 /**
  * Fetch all subreddits, filter, and categorize by profession
  */
@@ -126,19 +147,9 @@ export async function fetchRedditPosts() {
     const enrichedPosts = [];
     for (const post of jobPosts) {
         try {
-            const [categorization, summary, analysis] = await Promise.all([
-                categorizePost(post.title, post.content),
-                generateSummary(post.title, post.content),
-                analyzeJob(post.title, post.content),
-            ]);
-            if (categorization.professions.length > 0) {
-                enrichedPosts.push({
-                    ...post,
-                    professions: categorization.professions,
-                    confidence: categorization.confidence,
-                    summary,
-                    analysis,
-                });
+            const enrichedPost = await enrichPost(post);
+            if (enrichedPost) {
+                enrichedPosts.push(enrichedPost);
             }
         }
         catch (error) {
@@ -206,19 +217,9 @@ export async function fetchPostsByProfession(professionKey) {
     const enrichedPosts = [];
     for (const post of jobPosts) {
         try {
-            const [categorization, summary, analysis] = await Promise.all([
-                categorizePost(post.title, post.content),
-                generateSummary(post.title, post.content),
-                analyzeJob(post.title, post.content),
-            ]);
-            if (categorization.professions.includes(professionKey)) {
-                enrichedPosts.push({
-                    ...post,
-                    professions: categorization.professions,
-                    confidence: categorization.confidence,
-                    summary,
-                    analysis,
-                });
+            const enrichedPost = await enrichPost(post);
+            if (enrichedPost?.professions.includes(professionKey)) {
+                enrichedPosts.push(enrichedPost);
             }
         }
         catch (error) {
