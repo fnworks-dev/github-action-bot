@@ -1,7 +1,8 @@
 import { config } from '../config.js';
 import { professions } from '../config.js';
+import { generateTextWithFallback } from './client.js';
 /**
- * AI-based profession categorization using Gemini or GLM API.
+ * AI-based profession categorization using Gemini with NVIDIA NIM fallback.
  * Falls back to keyword matching if AI is unavailable.
  */
 // Profession descriptions for AI context
@@ -15,10 +16,7 @@ const professionDescriptions = {
     'qa': 'Quality assurance, testing, QA engineering, game testing, beta testing',
     'virtual-assistant': 'Virtual assistance, administrative support, project management, data entry'
 };
-/**
- * Call Gemini API for categorization
- */
-async function categorizeWithGemini(text) {
+async function categorizeWithAI(text) {
     const professionList = Object.values(professions).map(p => ({
         id: Object.keys(professions)[Object.values(professions).indexOf(p)],
         name: p.name,
@@ -41,82 +39,12 @@ TASK:
 6. Confidence 0.5-0.8 means the job might involve this profession
 
 Return ONLY the JSON, no explanation.`;
-    const response = await fetch(`${config.ai.geminiUrl}?key=${config.ai.geminiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            contents: [{
-                    parts: [{ text: prompt }]
-                }],
-            generationConfig: {
-                temperature: 0.1,
-                maxOutputTokens: 500,
-            }
-        })
+    const content = await generateTextWithFallback({
+        prompt,
+        temperature: 0.1,
+        maxOutputTokens: 500,
+        taskLabel: 'categorization',
     });
-    if (!response.ok) {
-        throw new Error(`Gemini API error: ${response.status}`);
-    }
-    const data = await response.json();
-    const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-    // Parse AI response
-    const cleaned = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    const parsed = JSON.parse(cleaned);
-    return {
-        professions: parsed.matches.map(m => m.profession),
-        confidence: parsed.matches.reduce((min, m) => Math.min(min, m.confidence), 1)
-    };
-}
-/**
- * Call GLM API for categorization (Anthropic-compatible format)
- */
-async function categorizeWithGLM(text) {
-    const professionList = Object.values(professions).map(p => ({
-        id: Object.keys(professions)[Object.values(professions).indexOf(p)],
-        name: p.name,
-        description: professionDescriptions[Object.keys(professions)[Object.values(professions).indexOf(p)]]
-    }));
-    const prompt = `You are a job posting classifier. Analyze this job post and determine which professions it matches.
-
-JOB POST:
-${text}
-
-PROFESSION OPTIONS:
-${professionList.map(p => `- ${p.id}: ${p.name} (${p.description})`).join('\n')}
-
-TASK:
-1. Identify which profession(s) this job post is hiring for
-2. A job can match MULTIPLE professions (e.g., "React developer who can design UI" matches both developer and artist)
-3. Return ONLY a JSON array with format: {"matches": [{"profession": "profession-id", "confidence": 0.0-1.0}]}
-4. Only include professions with confidence >= 0.5
-5. Confidence > 0.8 means the job is clearly for this profession
-6. Confidence 0.5-0.8 means the job might involve this profession
-
-Return ONLY the JSON, no explanation.`;
-    const response = await fetch(config.ai.glmUrl, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': config.ai.glmKey,
-            'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-            model: 'claude-sonnet-4-20250514', // Maps to GLM-4 via Z.ai proxy
-            max_tokens: 500,
-            messages: [{
-                    role: 'user',
-                    content: prompt
-                }]
-        })
-    });
-    if (!response.ok) {
-        const errorText = await response.text().catch(() => '');
-        console.log(`   GLM error ${response.status}: ${errorText.slice(0, 100)}`);
-        throw new Error(`GLM API error: ${response.status}`);
-    }
-    const data = await response.json();
-    const content = data.content?.[0]?.text || '{}';
-    // Parse AI response
     const cleaned = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const parsed = JSON.parse(cleaned);
     return {
@@ -154,24 +82,12 @@ export async function categorizePost(title, content) {
         console.log('📝 Post too short, using keyword matching');
         return categorizeWithKeywords(title, content);
     }
-    // Try Gemini first
-    if (config.ai.geminiKey) {
+    if (config.ai.geminiKey || config.ai.nvidiaNimKey) {
         try {
-            console.log('🤖 Using Gemini AI for categorization');
-            return await categorizeWithGemini(text);
+            return await categorizeWithAI(text);
         }
         catch (error) {
-            console.warn('⚠️ Gemini failed, falling back to keywords:', error);
-        }
-    }
-    // Try GLM as fallback
-    if (config.ai.glmKey) {
-        try {
-            console.log('🤖 Using GLM AI for categorization');
-            return await categorizeWithGLM(text);
-        }
-        catch (error) {
-            console.warn('⚠️ GLM failed, falling back to keywords:', error);
+            console.warn('⚠️ AI categorization failed, falling back to keywords:', error);
         }
     }
     // Final fallback to keyword matching
@@ -194,30 +110,21 @@ export async function generateSummary(title, content) {
 JOB POST:
 ${text}
 
-Summary:`;
-    // Try Gemini first
-    if (config.ai.geminiKey) {
+Summary:
+- Write in plain English.
+- Do not use bullets or markdown.
+- Do not include disclaimers or analysis labels.`;
+    if (config.ai.geminiKey || config.ai.nvidiaNimKey) {
         try {
-            const response = await fetch(`${config.ai.geminiUrl}?key=${config.ai.geminiKey}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{
-                            parts: [{ text: prompt }]
-                        }],
-                    generationConfig: {
-                        temperature: 0.3,
-                        maxOutputTokens: 200,
-                    }
-                })
+            return await generateTextWithFallback({
+                prompt,
+                temperature: 0.3,
+                maxOutputTokens: 200,
+                taskLabel: 'summary generation',
             });
-            if (response.ok) {
-                const data = await response.json();
-                return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || title;
-            }
         }
-        catch {
-            // Fall through
+        catch (error) {
+            console.warn('⚠️ AI summary failed, falling back to title:', error);
         }
     }
     return title;

@@ -7,8 +7,9 @@ export declare const config: {
     ai: {
         geminiKey: string;
         geminiUrl: string;
-        glmKey: string;
-        glmUrl: string;
+        nvidiaNimKey: string;
+        nvidiaNimUrl: string;
+        nvidiaNimModel: string;
     };
     maxPostAgeMs: number;
     cleanup: {

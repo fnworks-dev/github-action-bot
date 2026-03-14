@@ -4,13 +4,13 @@ export const config = {
         url: process.env.TURSO_DATABASE_URL || '',
         authToken: process.env.TURSO_AUTH_TOKEN || '',
     },
-    // AI (Gemini or GLM fallback)
+    // AI (Gemini primary, NVIDIA NIM fallback)
     ai: {
         geminiKey: process.env.GEMINI_API_KEY || '',
-        geminiUrl: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
-        glmKey: process.env.GLM_API_KEY || '',
-        // Anthropic-compatible endpoint for GLM via Z.ai proxy
-        glmUrl: 'https://api.z.ai/api/anthropic/v1/messages',
+        geminiUrl: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+        nvidiaNimKey: process.env.NVIDIA_NIM_API_KEY || '',
+        nvidiaNimUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
+        nvidiaNimModel: process.env.NVIDIA_NIM_MODEL || 'minimaxai/minimax-m2.5',
     },
     // Max post age (24 hours)
     maxPostAgeMs: 24 * 60 * 60 * 1000,
@@ -464,8 +464,8 @@ export function validateConfig() {
         ['TURSO_AUTH_TOKEN', config.turso.authToken],
     ];
     const missing = required.filter(([_, value]) => !value);
-    if (!config.ai.geminiKey && !config.ai.glmKey) {
-        missing.push(['GEMINI_API_KEY or GLM_API_KEY', '']);
+    if (!config.ai.geminiKey && !config.ai.nvidiaNimKey) {
+        missing.push(['GEMINI_API_KEY or NVIDIA_NIM_API_KEY', '']);
     }
     if (missing.length > 0) {
         throw new Error(`Missing required environment variables: ${missing.map(([name]) => name).join(', ')}`);

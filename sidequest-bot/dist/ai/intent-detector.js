@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { generateTextWithFallback } from './client.js';
 /**
  * Hiring intent detection using AI with keyword fallback.
  * Determines if a post is actually offering paid work or hiring.
@@ -178,73 +179,17 @@ function keywordIntentCheck(title, content) {
 // ============================================================================
 // AI-BASED INTENT DETECTION
 // ============================================================================
-/**
- * Call Gemini API for intent detection
- */
-async function detectIntentWithGemini(title, content) {
+async function detectIntentWithAI(title, content) {
     const prompt = INTENT_PROMPT
         .replace('{title}', title)
         .replace('{content}', content || '(no content)');
-    const response = await fetch(`${config.ai.geminiUrl}?key=${config.ai.geminiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            contents: [{
-                    parts: [{ text: prompt }]
-                }],
-            generationConfig: {
-                temperature: 0.1,
-                maxOutputTokens: 300,
-            }
-        })
+    const contentText = await generateTextWithFallback({
+        prompt,
+        temperature: 0.1,
+        maxOutputTokens: 300,
+        taskLabel: 'intent detection',
     });
-    if (!response.ok) {
-        throw new Error(`Gemini API error: ${response.status}`);
-    }
-    const data = await response.json();
-    const content_text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-    // Parse AI response
-    const cleaned = content_text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    const parsed = JSON.parse(cleaned);
-    return {
-        isJob: parsed.isJob,
-        confidence: parsed.confidence,
-        reason: parsed.reason,
-        method: 'ai',
-    };
-}
-/**
- * Call GLM API for intent detection (Anthropic-compatible format)
- */
-async function detectIntentWithGLM(title, content) {
-    const prompt = INTENT_PROMPT
-        .replace('{title}', title)
-        .replace('{content}', content || '(no content)');
-    const response = await fetch(config.ai.glmUrl, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': config.ai.glmKey,
-            'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-            model: 'claude-sonnet-4-20250514', // Maps to GLM-4 via Z.ai proxy
-            max_tokens: 300,
-            messages: [{
-                    role: 'user',
-                    content: prompt
-                }]
-        })
-    });
-    if (!response.ok) {
-        const errorText = await response.text().catch(() => '');
-        console.log(`   GLM error ${response.status}: ${errorText.slice(0, 100)}`);
-        throw new Error(`GLM API error: ${response.status}`);
-    }
-    const data = await response.json();
-    const content_text = data.content?.[0]?.text || '{}';
-    // Parse AI response
-    const cleaned = content_text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const cleaned = contentText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const parsed = JSON.parse(cleaned);
     return {
         isJob: parsed.isJob,
@@ -275,24 +220,12 @@ export async function detectHiringIntent(title, content) {
         return keywordResult;
     }
     // Step 2: AI verification for unclear cases
-    // Try Gemini first
-    if (config.ai.geminiKey) {
+    if (config.ai.geminiKey || config.ai.nvidiaNimKey) {
         try {
-            console.log('🤖 Using Gemini AI for intent detection');
-            return await detectIntentWithGemini(title, content);
+            return await detectIntentWithAI(title, content);
         }
         catch (error) {
-            console.warn('⚠️ Gemini intent detection failed, falling back to keywords:', error);
-        }
-    }
-    // Try GLM as fallback
-    if (config.ai.glmKey) {
-        try {
-            console.log('🤖 Using GLM AI for intent detection');
-            return await detectIntentWithGLM(title, content);
-        }
-        catch (error) {
-            console.warn('⚠️ GLM intent detection failed, falling back to keywords:', error);
+            console.warn('⚠️ AI intent detection failed, falling back to keywords:', error);
         }
     }
     // Final fallback to keyword matching
