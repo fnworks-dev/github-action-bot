@@ -45,25 +45,55 @@ function keywordIntentCheck(title: string, content: string | null): IntentDetect
     const text = `${title} ${content || ''}`.toLowerCase();
 
     const positiveSignals = [
-        'looking for',
+        // Hiring verbs (strong)
+        '[hiring]',
         'hiring',
         'seeking',
+        'need someone',
         'need a',
         'need an',
-        'need someone',
+        // Weak by itself; treated as strong only when paired with role tokens
+        'looking for',
+        // Pay/budget indicators
         'paid',
         'paying',
         'budget',
         'compensate',
-        'for my project',
-        'for my startup',
-        'for my game',
-        'for my app',
-        'for my website',
-        'wanted',
+        '$',
+        'usd',
+        '/hr',
+        'per hour',
     ];
 
     const negativeSignals = [
+        // "Looking for ..." but clearly not hiring (seeking a product/tool/advice, not labor)
+        'looking for an app',
+        'looking for a tool',
+        'looking for a software',
+        'looking for software',
+        'looking for a platform',
+        'looking for a service',
+        'looking for a solution',
+        'looking for a crm',
+        'looking for a saas',
+        'looking for a template',
+        'looking for resources',
+        'looking for resource',
+        // Partnership / cofounder posts are not freelance jobs
+        'looking for cofounder',
+        'looking for a cofounder',
+        'looking for co-founder',
+        'looking for a co-founder',
+        'seeking cofounder',
+        'seeking a cofounder',
+        'seeking co-founder',
+        'seeking a co-founder',
+        'cofounder wanted',
+        'co-founder wanted',
+        'technical cofounder',
+        'technical co-founder',
+        'cto cofounder',
+        'cto co-founder',
         'any recommendations',
         'recommendations for',
         'recommendations pls',
@@ -96,6 +126,26 @@ function keywordIntentCheck(title: string, content: string | null): IntentDetect
         'just launched',
         'i released',
         'i created',
+        'i built',
+        'i made',
+        'i shipped',
+        'i open-sourced',
+        'i open sourced',
+        'open-sourced',
+        'open sourced',
+        'unpopular opinion',
+        'hot take',
+        'my saas',
+        'my startup',
+        'my product',
+        'my app',
+        'my software',
+        'built a tool',
+        'built an app',
+        'built a',
+        'built an',
+        'how i ',
+        'how we ',
         'thoughts after',
         'observations after',
         'lessons learned',
@@ -106,6 +156,7 @@ function keywordIntentCheck(title: string, content: string | null): IntentDetect
         'anyone using',
         'how do you',
         'how to',
+        'what would you do',
         'earn ₹',
         'earn rs',
         '% commission',
@@ -140,6 +191,55 @@ function keywordIntentCheck(title: string, content: string | null): IntentDetect
         'looking for packaging',
     ];
 
+    const roleTokens = [
+        'developer',
+        'programmer',
+        'engineer',
+        'designer',
+        'artist',
+        'illustrator',
+        'writer',
+        'copywriter',
+        'video editor',
+        'editor',
+        'voice actor',
+        'voice actress',
+        'voiceover',
+        'va',
+        'virtual assistant',
+        'tester',
+        'qa',
+        'sound designer',
+        'audio engineer',
+        'composer',
+    ];
+
+    function hasRoleRequest(): boolean {
+        for (const role of roleTokens) {
+            const patterns = [
+                `looking for ${role}`,
+                `looking for a ${role}`,
+                `looking for an ${role}`,
+                `need ${role}`,
+                `need a ${role}`,
+                `need an ${role}`,
+                `hiring ${role}`,
+                `hiring a ${role}`,
+                `hiring an ${role}`,
+                `seeking ${role}`,
+                `seeking a ${role}`,
+                `seeking an ${role}`,
+                `${role} needed`,
+                `${role} required`,
+            ];
+
+            for (const p of patterns) {
+                if (text.includes(p)) return true;
+            }
+        }
+        return false;
+    }
+
     for (const signal of negativeSignals) {
         if (text.includes(signal)) {
             return {
@@ -160,11 +260,93 @@ function keywordIntentCheck(title: string, content: string | null): IntentDetect
         }
     }
 
-    if (positiveCount >= 1) {
+    const hasStrongHiringVerb =
+        text.includes('[hiring]') ||
+        text.includes('hiring') ||
+        text.includes('seeking') ||
+        text.includes('need someone') ||
+        text.includes('need a') ||
+        text.includes('need an');
+    const hasPaySignal =
+        text.includes('paid') ||
+        text.includes('paying') ||
+        text.includes('budget') ||
+        text.includes('compensate') ||
+        text.includes('$') ||
+        text.includes(' usd') ||
+        text.includes('/hr') ||
+        text.includes(' per hour');
+    const hasExplicitRole = hasRoleRequest();
+
+    const hasHiringForSomeoneToDoWork =
+        text.includes('looking for someone to') ||
+        text.includes('looking for somebody to') ||
+        text.includes('seeking someone to') ||
+        text.includes('hiring someone to') ||
+        text.includes('need someone to') ||
+        text.includes('need somebody to');
+
+    // Self-promo/showcase posts (e.g. "I built...", "How I...", "Unpopular opinion...") without any hiring verb/role.
+    const hasSelfPromo =
+        text.includes('i built') ||
+        text.includes('i made') ||
+        text.includes('i open-sourced') ||
+        text.includes('i open sourced') ||
+        text.includes('unpopular opinion') ||
+        text.includes('hot take') ||
+        text.includes('how i ') ||
+        text.includes('how we ') ||
+        text.includes('my saas') ||
+        text.includes('my startup') ||
+        text.includes('my product') ||
+        text.includes('my app') ||
+        text.includes('my software');
+    if (hasSelfPromo && !hasStrongHiringVerb && !hasExplicitRole) {
+        return {
+            isJob: false,
+            confidence: 0.9,
+            reason: 'Self-promo/showcase post (not hiring)',
+            method: 'keyword',
+        };
+    }
+
+    if (hasStrongHiringVerb && (hasPaySignal || hasExplicitRole)) {
         return {
             isJob: true,
-            confidence: Math.min(0.95, 0.7 + positiveCount * 0.1),
-            reason: `Contains hiring pattern(s): ${matchedSignals.slice(0, 2).join(', ')}`,
+            confidence: 0.9,
+            reason: hasPaySignal
+                ? 'Contains explicit hiring + pay/budget signal'
+                : 'Contains explicit hiring + role requested',
+            method: 'keyword',
+        };
+    }
+
+    if ((hasStrongHiringVerb || text.includes('looking for')) && hasHiringForSomeoneToDoWork) {
+        return {
+            isJob: true,
+            confidence: 0.75,
+            reason: 'Contains "looking for/need someone to <do work>" pattern (needs AI verification)',
+            method: 'keyword',
+        };
+    }
+
+    // "Looking for" is extremely ambiguous; only treat it as hiring when paired with a role token.
+    if (text.includes('looking for') && hasExplicitRole) {
+        return {
+            isJob: true,
+            confidence: 0.75,
+            reason: 'Contains "looking for <role>" pattern (needs AI verification)',
+            method: 'keyword',
+        };
+    }
+
+    // If there's literally no hiring signal at all, treat it as a high-confidence NOT-a-job.
+    // This prevents the AI layer from "hallucinating" hiring intent for generic r/SaaS/r/Entrepreneur posts.
+    if (!hasStrongHiringVerb && !hasExplicitRole && !hasPaySignal && positiveCount === 0) {
+        return {
+            isJob: false,
+            confidence: 0.9,
+            reason: 'No hiring signals detected (generic discussion/self-promo/etc.)',
             method: 'keyword',
         };
     }
@@ -172,7 +354,7 @@ function keywordIntentCheck(title: string, content: string | null): IntentDetect
     return {
         isJob: false,
         confidence: 0.3,
-        reason: 'No clear hiring intent detected',
+        reason: 'No clear hiring intent detected (ambiguous)',
         method: 'keyword',
     };
 }
@@ -244,4 +426,3 @@ export async function filterByHiringIntent(posts: RawPost[]): Promise<RawPost[]>
 
     return jobPosts;
 }
-
