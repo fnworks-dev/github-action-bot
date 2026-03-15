@@ -41,13 +41,9 @@ interface AIResponse {
 // KEYWORD-BASED INTENT DETECTION (Fast pre-filter)
 // ============================================================================
 
-/**
- * Quick keyword check for obvious hiring intent
- */
 function keywordIntentCheck(title: string, content: string | null): IntentDetectionResult {
     const text = `${title} ${content || ''}`.toLowerCase();
 
-    // Positive hiring intent signals
     const positiveSignals = [
         'looking for',
         'hiring',
@@ -67,9 +63,7 @@ function keywordIntentCheck(title: string, content: string | null): IntentDetect
         'wanted',
     ];
 
-    // Negative signals (NOT hiring) - TIGHTENED
     const negativeSignals = [
-        // Advice-seeking (EXPANDED)
         'any recommendations',
         'recommendations for',
         'recommendations pls',
@@ -96,13 +90,9 @@ function keywordIntentCheck(title: string, content: string | null): IntentDetect
         'tips for',
         'looking for tips',
         'looking for guidance',
-        
-        // Product discussions
         'any love for',
         'experience with',
         'thoughts about',
-
-        // Post-mortems / feedback posts
         'just launched',
         'i released',
         'i created',
@@ -111,18 +101,14 @@ function keywordIntentCheck(title: string, content: string | null): IntentDetect
         'lessons learned',
         'feedback on my',
         'check out my',
-
-        // Questions without hiring context
         'anyone else',
         'anyone use',
         'anyone using',
         'how do you',
         'how to',
-        
-        // Sales/Commission schemes (TIGHTENED to avoid art "commission" false positives)
         'earn ₹',
         'earn rs',
-        '% commission',           // NOT just "commission" - art world uses "commission" for custom work
+        '% commission',
         'percent commission',
         'for every business you close',
         'for every sale',
@@ -134,8 +120,6 @@ function keywordIntentCheck(title: string, content: string | null): IntentDetect
         'passive income',
         'make money online',
         'side hustle',
-        
-        // Selling/Transferring (NOT hiring) (NEW)
         'handover my',
         'hand over my',
         'sell my',
@@ -143,8 +127,6 @@ function keywordIntentCheck(title: string, content: string | null): IntentDetect
         'transfer my',
         'looking for buyer',
         'looking for someone to buy',
-        
-        // Navigation spam (NEW)
         'go to r/',
         'check out r/',
         'try r/',
@@ -153,16 +135,11 @@ function keywordIntentCheck(title: string, content: string | null): IntentDetect
         'wrong subreddit',
         'go to smallbusiness',
         'check out smallbusiness',
-        
-        // Empty/low effort (NEW)
         '[hiring] ->',
         '[hiring] -',
-        
-        // Vague "looking for" without context (NEW)
         'looking for packaging',
     ];
 
-    // Check negative signals first (they override positive)
     for (const signal of negativeSignals) {
         if (text.includes(signal)) {
             return {
@@ -174,7 +151,6 @@ function keywordIntentCheck(title: string, content: string | null): IntentDetect
         }
     }
 
-    // Check positive signals
     let positiveCount = 0;
     const matchedSignals: string[] = [];
     for (const signal of positiveSignals) {
@@ -187,13 +163,12 @@ function keywordIntentCheck(title: string, content: string | null): IntentDetect
     if (positiveCount >= 1) {
         return {
             isJob: true,
-            confidence: Math.min(0.95, 0.7 + (positiveCount * 0.1)),
+            confidence: Math.min(0.95, 0.7 + positiveCount * 0.1),
             reason: `Contains hiring pattern(s): ${matchedSignals.slice(0, 2).join(', ')}`,
             method: 'keyword',
         };
     }
 
-    // No clear signals - let AI decide
     return {
         isJob: false,
         confidence: 0.3,
@@ -201,10 +176,6 @@ function keywordIntentCheck(title: string, content: string | null): IntentDetect
         method: 'keyword',
     };
 }
-
-// ============================================================================
-// AI-BASED INTENT DETECTION
-// ============================================================================
 
 async function detectIntentWithAI(title: string, content: string | null): Promise<IntentDetectionResult> {
     const prompt = INTENT_PROMPT
@@ -228,36 +199,19 @@ async function detectIntentWithAI(title: string, content: string | null): Promis
     };
 }
 
-// ============================================================================
-// MAIN INTENT DETECTION FUNCTION
-// ============================================================================
-
-/**
- * Detect hiring intent using hybrid approach:
- * 1. Keyword check for obvious patterns
- * 2. AI verification for unclear cases
- */
-export async function detectHiringIntent(
-    title: string,
-    content: string | null
-): Promise<IntentDetectionResult> {
+export async function detectHiringIntent(title: string, content: string | null): Promise<IntentDetectionResult> {
     const text = `${title}\n\n${content || ''}`.trim();
 
-    // If text is too short, use keyword matching only
     if (text.length < 50) {
         console.log('📝 Post too short, using keyword intent detection');
         return keywordIntentCheck(title, content);
     }
 
-    // Step 1: Quick keyword check
     const keywordResult = keywordIntentCheck(title, content);
-
-    // High confidence keyword match - use it directly
     if (keywordResult.confidence >= 0.85) {
         return keywordResult;
     }
 
-    // Step 2: AI verification for unclear cases
     if (config.ai.geminiKey || config.ai.nvidiaNimKey) {
         try {
             return await detectIntentWithAI(title, content);
@@ -266,17 +220,11 @@ export async function detectHiringIntent(
         }
     }
 
-    // Final fallback to keyword matching
     console.log('🔍 Using keyword-based intent detection');
     return keywordResult;
 }
 
-/**
- * Filter posts array to only those with hiring intent
- */
-export async function filterByHiringIntent(
-    posts: RawPost[]
-): Promise<RawPost[]> {
+export async function filterByHiringIntent(posts: RawPost[]): Promise<RawPost[]> {
     const jobPosts: RawPost[] = [];
 
     for (const post of posts) {
@@ -291,9 +239,9 @@ export async function filterByHiringIntent(
             }
         } catch (error) {
             console.error(`Failed to detect intent for post: ${post.title.slice(0, 30)}...`, error);
-            // On error, exclude the post to be safe
         }
     }
 
     return jobPosts;
 }
+

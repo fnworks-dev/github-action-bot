@@ -9,9 +9,18 @@ export const config = {
     ai: {
         geminiKey: process.env.GEMINI_API_KEY || '',
         geminiUrl: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-        nvidiaNimKey: process.env.NVIDIA_NIM_API_KEY || '',
-        nvidiaNimUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
-        nvidiaNimModel: process.env.NVIDIA_NIM_MODEL || 'minimaxai/minimax-m2.5',
+        nvidiaNimKey: process.env.NIM_API_KEY || process.env.NVIDIA_NIM_API_KEY || process.env.NVIDIA_API_KEY || '',
+        nvidiaNimUrl: (process.env.NIM_BASE_URL || process.env.NVIDIA_NIM_URL || 'https://integrate.api.nvidia.com/v1')
+            .trim()
+            .replace(/\/+$/, '')
+            .includes('/chat/completions')
+            ? (process.env.NIM_BASE_URL || process.env.NVIDIA_NIM_URL || 'https://integrate.api.nvidia.com/v1')
+                .trim()
+                .replace(/\/+$/, '')
+            : `${(process.env.NIM_BASE_URL || process.env.NVIDIA_NIM_URL || 'https://integrate.api.nvidia.com/v1')
+                .trim()
+                .replace(/\/+$/, '')}/chat/completions`,
+        nvidiaNimModel: process.env.NIM_MODEL || process.env.NVIDIA_NIM_MODEL || 'meta/llama-3.1-8b-instruct',
     },
     maxPostAgeMs: 24 * 60 * 60 * 1000,
     cleanup: { deleteAfterDays: 30 },
@@ -107,7 +116,7 @@ export function validateConfig(): void {
     ];
     const missing = required.filter(([_, value]) => !value);
     if (!config.ai.geminiKey && !config.ai.nvidiaNimKey) {
-        missing.push(['GEMINI_API_KEY or NVIDIA_NIM_API_KEY', '']);
+        missing.push(['GEMINI_API_KEY or NIM_API_KEY', '']);
     }
     if (missing.length > 0) {
         throw new Error(`Missing: ${missing.map(([name]) => name).join(', ')}`);

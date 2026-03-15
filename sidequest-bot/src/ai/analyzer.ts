@@ -46,7 +46,7 @@ async function analyzeWithAI(title: string, content: string | null): Promise<Job
         taskLabel: 'job analysis',
     });
     const cleaned = contentText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    
+
     try {
         const parsed = JSON.parse(cleaned);
         return {
@@ -64,9 +64,6 @@ async function analyzeWithAI(title: string, content: string | null): Promise<Job
     }
 }
 
-/**
- * Return empty analysis structure
- */
 function getEmptyAnalysis(): JobAnalysis {
     return {
         project_type: null,
@@ -79,13 +76,9 @@ function getEmptyAnalysis(): JobAnalysis {
     };
 }
 
-/**
- * Main analysis function - tries AI, falls back to empty
- */
 export async function analyzeJob(title: string, content: string | null): Promise<JobAnalysis> {
     const text = `${title}\n\n${content || ''}`.trim();
-    
-    // Skip analysis for very short posts
+
     if (text.length < 100) {
         console.log('📝 Post too short for deep analysis');
         return getEmptyAnalysis();
@@ -99,7 +92,7 @@ export async function analyzeJob(title: string, content: string | null): Promise
         }
     }
 
-    // Return empty if both fail
     console.log('⚠️ AI analysis unavailable, returning empty analysis');
     return getEmptyAnalysis();
 }
+

@@ -1,16 +1,30 @@
-name: SideQuest Bot 02 (Voice + Video + Writer)
+name: SideQuest Backfill Summaries
 
 on:
-  schedule:
-    # Run every 4 hours at :30
-    - cron: '30 */4 * * *'
   workflow_dispatch:
+    inputs:
+      since:
+        description: "Backfill rows created_at >= this date (YYYY-MM-DD)"
+        required: true
+        default: "2026-03-12"
+      limit:
+        description: "Max rows to process"
+        required: true
+        default: "200"
+      dry_run:
+        description: "If true, does not write updates"
+        required: true
+        default: "true"
+      sleep_ms:
+        description: "Delay between rows (ms)"
+        required: true
+        default: "500"
 
 jobs:
-  run-bot:
+  backfill:
     if: github.repository == 'fnworks-dev/github-action-bot'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -29,7 +43,7 @@ jobs:
         working-directory: ./sidequest-bot
         run: npm run build
 
-      - name: Run SideQuest Bot 02
+      - name: Backfill summaries
         working-directory: ./sidequest-bot
         env:
           TURSO_DATABASE_URL: ${{ secrets.SIDEQUEST_TURSO_URL }}
@@ -39,10 +53,9 @@ jobs:
           GEMINI_BACKUP_KEY_2: ${{ secrets.GEMINI_BACKUP_KEY_2 }}
           NIM_API_KEY: ${{ secrets.NIM_API_KEY }}
           NIM_MODEL: meta/llama-3.1-8b-instruct
-          NVIDIA_NIM_API_KEY: ${{ secrets.NIM_API_KEY }}
-          NVIDIA_NIM_MODEL: meta/llama-3.1-8b-instruct
-          CONFIG: '02'
-          SIDEQUEST_MAX_SUBREDDITS: '25'
-          GITHUB_RUN_ID: ${{ github.run_id }}
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-        run: npm run start:split
+          BACKFILL_SINCE: ${{ inputs.since }}
+          BACKFILL_LIMIT: ${{ inputs.limit }}
+          BACKFILL_DRY_RUN: ${{ inputs.dry_run }}
+          BACKFILL_SLEEP_MS: ${{ inputs.sleep_ms }}
+        run: npm run backfill:summaries
+

@@ -35,7 +35,12 @@ jobs:
           TURSO_DATABASE_URL: ${{ secrets.SIDEQUEST_TURSO_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.SIDEQUEST_TURSO_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_NIM_API_KEY }}
+          GEMINI_BACKUP_KEY_1: ${{ secrets.GEMINI_BACKUP_KEY_1 }}
+          GEMINI_BACKUP_KEY_2: ${{ secrets.GEMINI_BACKUP_KEY_2 }}
+          NIM_API_KEY: ${{ secrets.NIM_API_KEY }}
+          NIM_MODEL: meta/llama-3.1-8b-instruct
+          NVIDIA_NIM_API_KEY: ${{ secrets.NIM_API_KEY }}
+          NVIDIA_NIM_MODEL: meta/llama-3.1-8b-instruct
           CONFIG: '03'
           SIDEQUEST_MAX_SUBREDDITS: '25'
           GITHUB_RUN_ID: ${{ github.run_id }}

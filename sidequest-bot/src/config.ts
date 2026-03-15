@@ -8,13 +8,38 @@ export const config = {
         authToken: process.env.TURSO_AUTH_TOKEN || '',
     },
 
-    // AI (Gemini primary, NVIDIA NIM fallback)
+    // AI (Gemini primary with cascade fallbacks, NVIDIA NIM fallback)
     ai: {
         geminiKey: process.env.GEMINI_API_KEY || '',
-        geminiUrl: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-        nvidiaNimKey: process.env.NVIDIA_NIM_API_KEY || '',
-        nvidiaNimUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
-        nvidiaNimModel: process.env.NVIDIA_NIM_MODEL || 'minimaxai/minimax-m2.5',
+        geminiBackupKeys: [
+            process.env.GEMINI_BACKUP_KEY_1 || '',
+            process.env.GEMINI_BACKUP_KEY_2 || '',
+        ].filter((k) => k !== ''),
+        geminiModels: [
+            'gemini-3.1-flash-lite-preview',
+            'gemini-3-flash-preview',
+            'gemini-2.5-flash',
+            'gemini-2.5-flash-lite',
+        ],
+        geminiBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/models',
+        // Backwards-compatible single-model endpoint (used only if cascade isn't available).
+        geminiUrl:
+            process.env.GEMINI_URL ||
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+
+        // NVIDIA NIM (OpenAI-compatible chat completions)
+        nvidiaNimKey: process.env.NIM_API_KEY || process.env.NVIDIA_NIM_API_KEY || process.env.NVIDIA_API_KEY || '',
+        nvidiaNimUrl: (process.env.NIM_BASE_URL || process.env.NVIDIA_NIM_URL || 'https://integrate.api.nvidia.com/v1')
+            .trim()
+            .replace(/\/+$/, '')
+            .includes('/chat/completions')
+            ? (process.env.NIM_BASE_URL || process.env.NVIDIA_NIM_URL || 'https://integrate.api.nvidia.com/v1')
+                .trim()
+                .replace(/\/+$/, '')
+            : `${(process.env.NIM_BASE_URL || process.env.NVIDIA_NIM_URL || 'https://integrate.api.nvidia.com/v1')
+                .trim()
+                .replace(/\/+$/, '')}/chat/completions`,
+        nvidiaNimModel: process.env.NIM_MODEL || process.env.NVIDIA_NIM_MODEL || 'meta/llama-3.1-8b-instruct',
     },
 
     // Max post age (24 hours)
@@ -527,7 +552,7 @@ export function validateConfig(): void {
     const missing = required.filter(([_, value]) => !value);
 
     if (!config.ai.geminiKey && !config.ai.nvidiaNimKey) {
-        missing.push(['GEMINI_API_KEY or NVIDIA_NIM_API_KEY', '']);
+        missing.push(['GEMINI_API_KEY or NIM_API_KEY', '']);
     }
 
     if (missing.length > 0) {

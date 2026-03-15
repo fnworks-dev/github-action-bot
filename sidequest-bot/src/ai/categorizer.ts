@@ -8,16 +8,15 @@ import { generateTextWithFallback } from './client.js';
  * Falls back to keyword matching if AI is unavailable.
  */
 
-// Profession descriptions for AI context
 const professionDescriptions: Record<Profession, string> = {
-    'developer': 'Software development, programming, web/mobile app development, frontend/backend engineering',
-    'artist': 'Visual art, illustration, graphic design, UI/UX design, concept art, game art',
+    developer: 'Software development, programming, web/mobile app development, frontend/backend engineering',
+    artist: 'Visual art, illustration, graphic design, UI/UX design, concept art, game art',
     'voice-actor': 'Voice acting, voice-over work, narration, character voices, audiobooks',
     'video-editor': 'Video editing, motion graphics, VFX, post-production, color grading',
-    'writer': 'Writing, copywriting, content writing, technical writing, scriptwriting',
-    'audio': 'Sound design, music composition, audio engineering, game audio, Foley',
-    'qa': 'Quality assurance, testing, QA engineering, game testing, beta testing',
-    'virtual-assistant': 'Virtual assistance, administrative support, project management, data entry'
+    writer: 'Writing, copywriting, content writing, technical writing, scriptwriting',
+    audio: 'Sound design, music composition, audio engineering, game audio, Foley',
+    qa: 'Quality assurance, testing, QA engineering, game testing, beta testing',
+    'virtual-assistant': 'Virtual assistance, administrative support, project management, data entry',
 };
 
 interface AIResponse {
@@ -25,10 +24,13 @@ interface AIResponse {
 }
 
 async function categorizeWithAI(text: string): Promise<CategorizationResult> {
-    const professionList = Object.values(professions).map(p => ({
+    const professionList = Object.values(professions).map((p) => ({
         id: Object.keys(professions)[Object.values(professions).indexOf(p)] as Profession,
         name: p.name,
-        description: professionDescriptions[Object.keys(professions)[Object.values(professions).indexOf(p)] as Profession]
+        description:
+            professionDescriptions[
+                Object.keys(professions)[Object.values(professions).indexOf(p)] as Profession
+            ],
     }));
 
     const prompt = `You are a job posting classifier. Analyze this job post and determine which professions it matches.
@@ -37,7 +39,7 @@ JOB POST:
 ${text}
 
 PROFESSION OPTIONS:
-${professionList.map(p => `- ${p.id}: ${p.name} (${p.description})`).join('\n')}
+${professionList.map((p) => `- ${p.id}: ${p.name} (${p.description})`).join('\n')}
 
 TASK:
 1. Identify which profession(s) this job post is hiring for
@@ -55,18 +57,16 @@ Return ONLY the JSON, no explanation.`;
         maxOutputTokens: 500,
         taskLabel: 'categorization',
     });
+
     const cleaned = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const parsed = JSON.parse(cleaned) as AIResponse;
 
     return {
-        professions: parsed.matches.map(m => m.profession),
-        confidence: parsed.matches.reduce((min, m) => Math.min(min, m.confidence), 1)
+        professions: parsed.matches.map((m) => m.profession),
+        confidence: parsed.matches.reduce((min, m) => Math.min(min, m.confidence), 1),
     };
 }
 
-/**
- * Fallback keyword-based categorization
- */
 function categorizeWithKeywords(title: string, content: string | null): CategorizationResult {
     const text = `${title} ${content || ''}`.toLowerCase();
     const matchedProfessions: Profession[] = [];
@@ -74,16 +74,12 @@ function categorizeWithKeywords(title: string, content: string | null): Categori
 
     for (const professionKey of professionKeys) {
         const profession = professions[professionKey];
-        const hasMatch = profession.keywords.some(keyword =>
-            text.includes(keyword.toLowerCase())
-        );
-
+        const hasMatch = profession.keywords.some((keyword) => text.includes(keyword.toLowerCase()));
         if (hasMatch) {
             matchedProfessions.push(professionKey);
         }
     }
 
-    // Default to developer if no matches found (but with low confidence)
     if (matchedProfessions.length === 0) {
         return { professions: [], confidence: 0 };
     }
@@ -91,13 +87,9 @@ function categorizeWithKeywords(title: string, content: string | null): Categori
     return { professions: matchedProfessions, confidence: 0.6 };
 }
 
-/**
- * Main categorization function - tries AI first, falls back to keywords
- */
 export async function categorizePost(title: string, content: string | null): Promise<CategorizationResult> {
     const text = `${title}\n\n${content || ''}`.trim();
 
-    // If text is too short, use keyword matching
     if (text.length < 50) {
         console.log('📝 Post too short, using keyword matching');
         return categorizeWithKeywords(title, content);
@@ -111,14 +103,27 @@ export async function categorizePost(title: string, content: string | null): Pro
         }
     }
 
-    // Final fallback to keyword matching
     console.log('🔍 Using keyword-based categorization');
     return categorizeWithKeywords(title, content);
 }
 
-/**
- * Generate a summary of the job post using AI
- */
+function heuristicSummary(title: string, content: string | null): string | null {
+    if (!content || !content.trim()) return null;
+
+    const paragraphs = content
+        .split(/\n\s*\n/)
+        .map((p) => p.trim())
+        .filter(Boolean);
+    const first = (paragraphs[0] || content).replace(/\s+/g, ' ').trim();
+    if (!first) return null;
+
+    const clipped = first.split(' ').slice(0, 100).join(' ').trim();
+    if (!clipped) return null;
+
+    const isEcho = clipped.toLowerCase() === title.trim().toLowerCase();
+    return isEcho ? null : clipped;
+}
+
 export async function generateSummary(title: string, content: string | null): Promise<string> {
     const text = `${title}\n\n${content || ''}`.trim();
 
@@ -141,16 +146,28 @@ Summary:
 
     if (config.ai.geminiKey || config.ai.nvidiaNimKey) {
         try {
-            return await generateTextWithFallback({
+            const raw = await generateTextWithFallback({
                 prompt,
                 temperature: 0.3,
                 maxOutputTokens: 200,
                 taskLabel: 'summary generation',
             });
+
+            const cleaned = raw.replace(/^summary:\s*/i, '').trim();
+            const words = cleaned.split(/\s+/).filter(Boolean);
+            const normalized = words.slice(0, 100).join(' ').trim();
+            const isEcho =
+                normalized.toLowerCase() === title.trim().toLowerCase() &&
+                Boolean(content && content.trim());
+
+            if (normalized && !isEcho) {
+                return normalized;
+            }
         } catch (error) {
-            console.warn('⚠️ AI summary failed, falling back to title:', error);
+            console.warn('⚠️ AI summary failed:', error);
         }
     }
 
-    return title;
+    return heuristicSummary(title, content) || title;
 }
+

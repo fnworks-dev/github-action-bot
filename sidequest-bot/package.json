@@ -8,6 +8,7 @@
         "build": "tsc",
         "start": "node dist/index.js",
         "start:split": "node dist/index-split.js",
+        "backfill:summaries": "node dist/backfill-summaries.js",
         "dev": "tsx src/index.ts",
         "dev:split": "tsx src/index-split.ts"
     },

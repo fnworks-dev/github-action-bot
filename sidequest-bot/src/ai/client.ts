@@ -152,8 +152,64 @@ async function runProviderWithRetries(
 }
 
 async function generateWithGemini(options: AITextOptions): Promise<string> {
-    let response: Response;
+    const models = config.ai.geminiModels || [];
+    const keys = [config.ai.geminiKey, ...(config.ai.geminiBackupKeys || [])].filter(Boolean);
+    const baseUrl = config.ai.geminiBaseUrl || '';
 
+    if (baseUrl && models.length > 0 && keys.length > 0) {
+        let lastError: ProviderError | null = null;
+
+        for (let ki = 0; ki < keys.length; ki += 1) {
+            const key = keys[ki];
+            for (const model of models) {
+                const url = `${baseUrl}/${model}:generateContent?key=${key}`;
+                let response: Response;
+
+                try {
+                    response = await fetchWithTimeout(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{
+                                parts: [{ text: options.prompt }]
+                            }],
+                            generationConfig: {
+                                temperature: options.temperature,
+                                maxOutputTokens: options.maxOutputTokens,
+                            }
+                        })
+                    }, DEFAULT_TIMEOUT_MS);
+                } catch (error) {
+                    lastError = toProviderError('Gemini', error);
+                    continue;
+                }
+
+                if (!response.ok) {
+                    const errorText = await response.text().catch(() => '');
+                    lastError = new ProviderError(
+                        'Gemini',
+                        response.status,
+                        RETRYABLE_STATUS_CODES.has(response.status),
+                        `Gemini API error: ${response.status} ${errorText.slice(0, 200)}`
+                    );
+                    continue;
+                }
+
+                const data = await response.json() as GeminiResponse;
+                const text = extractGeminiText(data);
+                if (!text) {
+                    lastError = new ProviderError('Gemini', response.status, true, 'Gemini API returned empty content');
+                    continue;
+                }
+
+                return text;
+            }
+        }
+
+        throw lastError || new ProviderError('Gemini', null, true, 'All Gemini keys/models failed');
+    }
+
+    let response: Response;
     try {
         response = await fetchWithTimeout(`${config.ai.geminiUrl}?key=${config.ai.geminiKey}`, {
             method: 'POST',
@@ -237,17 +293,6 @@ async function generateWithNvidiaNim(options: AITextOptions): Promise<string> {
 export async function generateTextWithFallback(options: AITextOptions): Promise<string> {
     const errors: string[] = [];
 
-    if (config.ai.nvidiaNimKey) {
-        try {
-            return await runProviderWithRetries('NVIDIA NIM', options.taskLabel, () =>
-                generateWithNvidiaNim(options)
-            );
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            errors.push(`NVIDIA NIM: ${message}`);
-        }
-    }
-
     if (config.ai.geminiKey) {
         try {
             return await runProviderWithRetries('Gemini', options.taskLabel, () =>
@@ -256,6 +301,17 @@ export async function generateTextWithFallback(options: AITextOptions): Promise<
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             errors.push(`Gemini: ${message}`);
+        }
+    }
+
+    if (config.ai.nvidiaNimKey) {
+        try {
+            return await runProviderWithRetries('NVIDIA NIM', options.taskLabel, () =>
+                generateWithNvidiaNim(options)
+            );
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            errors.push(`NVIDIA NIM: ${message}`);
         }
     }
 
