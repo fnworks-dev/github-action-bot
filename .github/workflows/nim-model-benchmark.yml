@@ -7,10 +7,14 @@ on:
         description: "How many intent test cases to run (1-10)"
         required: true
         default: "10"
+      tasks:
+        description: "Comma-separated tasks: intent,summary,categorize"
+        required: true
+        default: "intent"
       timeout_ms:
         description: "Per-request timeout (ms)"
         required: true
-        default: "30000"
+        default: "15000"
 
 jobs:
   benchmark:
@@ -31,6 +35,6 @@ jobs:
         env:
           NIM_API_KEY: ${{ secrets.NIM_API_KEY }}
           INTENT_CASES: ${{ inputs.intent_cases }}
+          BENCH_TASKS: ${{ inputs.tasks }}
           NIM_TIMEOUT_MS: ${{ inputs.timeout_ms }}
         run: node .github/workflows/scripts/nim-model-benchmark.mjs
-

@@ -22,6 +22,12 @@ function clampInt(v, min, max, fallback) {
 const API_KEY = requireEnv("NIM_API_KEY");
 const INTENT_CASES = clampInt(process.env.INTENT_CASES, 1, 10, 10);
 const TIMEOUT_MS = clampInt(process.env.NIM_TIMEOUT_MS, 5000, 120000, 30000);
+const TASKS = new Set(
+  String(process.env.BENCH_TASKS || "intent")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+);
 
 const INTENT_PROMPT = `You are a STRICT job intent detector. Be AGGRESSIVE in rejecting non-job posts. Your task is to determine if a post is TRULY offering paid work or hiring someone for a specific task/project.
 
@@ -256,7 +262,7 @@ async function runForModel(model) {
   };
 
   // Intent
-  {
+  if (TASKS.has("intent")) {
     const cases = intentCases.slice(0, INTENT_CASES);
     let totalMs = 0;
     for (const tc of cases) {
@@ -297,7 +303,7 @@ async function runForModel(model) {
   }
 
   // Summary
-  {
+  if (TASKS.has("summary")) {
     let totalMs = 0;
     for (const tc of summaryCases) {
       results.summary.total += 1;
@@ -323,7 +329,7 @@ async function runForModel(model) {
   }
 
   // Categorize
-  {
+  if (TASKS.has("categorize")) {
     let totalMs = 0;
     for (const tc of categorizeCases) {
       results.categorize.total += 1;
@@ -412,4 +418,3 @@ main().catch((err) => {
   console.error("Benchmark failed:", err);
   process.exit(1);
 });
-
