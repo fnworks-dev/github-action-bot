@@ -1,0 +1,36 @@
+name: NIM Model Benchmark (SideQuest)
+
+on:
+  workflow_dispatch:
+    inputs:
+      intent_cases:
+        description: "How many intent test cases to run (1-10)"
+        required: true
+        default: "10"
+      timeout_ms:
+        description: "Per-request timeout (ms)"
+        required: true
+        default: "30000"
+
+jobs:
+  benchmark:
+    if: github.repository == 'fnworks-dev/github-action-bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run benchmark
+        env:
+          NIM_API_KEY: ${{ secrets.NIM_API_KEY }}
+          INTENT_CASES: ${{ inputs.intent_cases }}
+          NIM_TIMEOUT_MS: ${{ inputs.timeout_ms }}
+        run: node .github/workflows/scripts/nim-model-benchmark.mjs
+
