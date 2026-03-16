@@ -38,9 +38,9 @@ jobs:
           GEMINI_BACKUP_KEY_1: ${{ secrets.GEMINI_BACKUP_KEY_1 }}
           GEMINI_BACKUP_KEY_2: ${{ secrets.GEMINI_BACKUP_KEY_2 }}
           NIM_API_KEY: ${{ secrets.NIM_API_KEY }}
-          NIM_MODEL: meta/llama-3.1-8b-instruct
+          NIM_MODEL: minimaxai/minimax-m2.5
           NVIDIA_NIM_API_KEY: ${{ secrets.NIM_API_KEY }}
-          NVIDIA_NIM_MODEL: meta/llama-3.1-8b-instruct
+          NVIDIA_NIM_MODEL: minimaxai/minimax-m2.5
           CONFIG: '03'
           SIDEQUEST_MAX_SUBREDDITS: '25'
           GITHUB_RUN_ID: ${{ github.run_id }}
