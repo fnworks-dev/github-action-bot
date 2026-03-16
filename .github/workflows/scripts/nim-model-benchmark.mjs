@@ -4,7 +4,6 @@ import { performance } from "node:perf_hooks";
 const NIM_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
 const MODELS = [
   { id: "meta/llama-3.1-8b-instruct", label: "meta-llama-3.1-8b-instruct" },
-  { id: "minimaxai/minimax-m2.1", label: "minimax-m2.1" },
 ];
 
 function requireEnv(name) {
