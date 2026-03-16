@@ -52,7 +52,7 @@ jobs:
           GEMINI_BACKUP_KEY_1: ${{ secrets.GEMINI_BACKUP_KEY_1 }}
           GEMINI_BACKUP_KEY_2: ${{ secrets.GEMINI_BACKUP_KEY_2 }}
           NIM_API_KEY: ${{ secrets.NIM_API_KEY }}
-          NIM_MODEL: minimaxai/minimax-m2.5
+          NIM_MODEL: meta/llama-3.1-8b-instruct
           BACKFILL_SINCE: ${{ inputs.since }}
           BACKFILL_LIMIT: ${{ inputs.limit }}
           BACKFILL_DRY_RUN: ${{ inputs.dry_run }}
