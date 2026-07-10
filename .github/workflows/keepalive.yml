@@ -2,9 +2,12 @@ name: Keep Workflows Alive
 
 on:
   schedule:
-    # Run every week to keep workflows active
-    - cron: '0 0 * * 0'
+    # Run every 14 days — well within GitHub's 60-day inactivity window
+    - cron: '0 0 1,15 * *'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   keepalive:
@@ -13,8 +16,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
-      - name: Keep alive
+
+      - name: Push keepalive commit
         run: |
-          echo "Keeping workflows alive..."
-          date
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "chore: keepalive — prevent workflow auto-disable"
+          git push
