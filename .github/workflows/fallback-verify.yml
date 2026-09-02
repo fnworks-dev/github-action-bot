@@ -8,33 +8,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Bench NIM backup candidates
+      - name: Diagnose NIM models
         env:
           NIM_API_KEY: ${{ secrets.NIM_API_KEY }}
         run: |
           set -o pipefail
-          bench() {
+          diag() {
             MODEL="$1"; LABEL="$2"
-            for i in 1 2 3; do
-              START=$(date +%s%N)
-              CODE=$(curl -s -m 45 -o /tmp/r.json -w "%{http_code}" \
-                https://integrate.api.nvidia.com/v1/chat/completions \
-                -H "Authorization: Bearer $NIM_API_KEY" \
-                -H "Content-Type: application/json" \
-                -d '{
-                  "model": "'$MODEL'",
-                  "max_tokens": 500,
-                  "temperature": 0.1,
-                  "messages": [{"role": "user", "content": "Is the author of this post hiring someone? Reply ONLY JSON {\"isJob\": true|false, \"confidence\": 0.0-1.0}. Post: [For hire] 2D artist open for commissions"}]
-                }')
-              END=$(date +%s%N)
-              MS=$(( (END-START)/1000000 ))
-              OK=$(grep -c '"isJob"' /tmp/r.json || true)
-              echo "$LABEL call$i: HTTP=$CODE ${MS}ms isJob-json=$OK"
-            done
+            CODE=$(curl -s -m 45 -o /tmp/r.json -w "%{http_code}" \
+              https://integrate.api.nvidia.com/v1/chat/completions \
+              -H "Authorization: Bearer $NIM_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "model": "'$MODEL'",
+                "max_tokens": 500,
+                "temperature": 0.1,
+                "messages": [{"role": "user", "content": "Is the author of this post hiring someone? Reply ONLY JSON {\"isJob\": true|false, \"confidence\": 0.0-1.0}. Post: [For hire] 2D artist open for commissions"}]
+              }')
+            echo "=== $LABEL HTTP=$CODE"
+            cat /tmp/r.json | head -c 700
+            echo
           }
-          bench "nvidia/nemotron-3-super-120b-a12b" "super-120b"
-          bench "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning" "nano-omni-30b"
-          bench "mistralai/mistral-nemotron" "mistral-nemotron"
-          bench "meta/muse-glimmer-30b" "muse-glimmer"
+          diag "nvidia/nemotron-3-super-120b-a12b" "super-120b"
+          diag "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning" "nano-omni-30b"
           echo DONE
