@@ -81,6 +81,16 @@ Notes:
 - **Run Health**: writes run tracking rows to `sidequest_runs`, fails on stale feed freshness beyond threshold
 - **Optional Secrets**: `SIDEQUEST_REDDIT_CLIENT_ID`, `SIDEQUEST_REDDIT_CLIENT_SECRET` for Reddit OAuth fetches
 
+#### Content Filtering (SideQuest)
+
+Three-layer filter pipeline (all config variants share `sidequest-bot/src/filters.ts`):
+
+1. **Fetch-time**: Reddit `over_18` flagged posts dropped immediately (both `index-split.ts` and `sources/reddit.ts`)
+2. **NSFW keywords** (`isNsfwContent`): blocks posts offering/requesting adult work even when unflagged — nsfw, 18+, hentai, fetish, kink(s), lewd, nudes, r34, yiff, onlyfans, etc.
+3. **Junk tightening** (`isJunkContent`): title-only `[For Hire]`/`[Hiring]` tags with no body, `discord.gg` invite spam, link-shortener spam (bit.ly, tinyurl, cutt.ly)
+
+Plus existing per-config `negativeFilters` (self-promotion, advice-seeking, surveys, etc.) and AI hiring-intent detection (strict: rejects offers-of-service, commission schemes, vague posts).
+
 ### SideQuest Reliability
 
 - **Failure alerting**: all 5 sidequest workflows post to Discord (`DISCORD_WEBHOOK_URL` secret) on `failure()`
