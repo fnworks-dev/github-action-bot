@@ -8,17 +8,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - name: Compare fallback models
+      - name: Reliability bench
         env:
           NIM_API_KEY: ${{ secrets.NIM_API_KEY }}
         run: |
           set +e
-          test_model() {
-            MODEL="$1"
-            LABEL="$2"
-            for ATTEMPT in 1 2 3; do
-              START=$(date +%s)
-              RESP=$(curl -s -m 75 -w "\n%{http_code}" \
+          bench() {
+            MODEL="$1"; LABEL="$2"
+            OK=0; FAIL=0; TOTAL_T=0
+            for i in 1 2 3 4; do
+              START=$(date +%s%N)
+              CODE=$(curl -s -m 60 -o /tmp/resp.json -w "%{http_code}" \
                 https://integrate.api.nvidia.com/v1/chat/completions \
                 -H "Authorization: Bearer $NIM_API_KEY" \
                 -H "Content-Type: application/json" \
@@ -26,20 +26,21 @@ jobs:
                   "model": "'$MODEL'",
                   "max_tokens": 800,
                   "temperature": 0.1,
-                  "messages": [{"role": "user", "content": "Classify this Reddit post. Is the author hiring someone? Reply ONLY JSON {\"isJob\": true|false, \"confidence\": 0.0-1.0}.\n\nTitle: [For hire] 2D artist open for commissions\nContent: I do character art, 5+ yrs exp, portfolio in profile (author is OFFERING services, not hiring)"}]
-                }' 2>&1) || true
-              END=$(date +%s)
-              HTTP=$(echo "$RESP" | tail -1)
-              BODY=$(echo "$RESP" | head -n -1)
-              echo "=== $LABEL attempt $ATTEMPT: HTTP $HTTP, $((END-START))s"
-              echo "$BODY" | head -c 400
-              echo
-              if [ "$HTTP" = "200" ]; then break; fi
-              sleep 5
+                  "messages": [{"role": "user", "content": "Classify this Reddit post. Is the author hiring someone? Reply ONLY JSON {\"isJob\": true|false, \"confidence\": 0.0-1.0}.\n\nTitle: '$i' — '$LABEL' test\nContent: [Hiring] Need logo designer, $200 budget, one week"}]
+                }')
+              END=$(date +%s%N)
+              MS=$(( (END-START)/1000000 ))
+              if [ "$CODE" = "200" ] && grep -q '"isJob": true' /tmp/resp.json; then
+                OK=$((OK+1)); TOTAL_T=$((TOTAL_T+MS))
+                echo "$LABEL call$i: OK ${MS}ms"
+              else
+                FAIL=$((FAIL+1))
+                echo "$LABEL call$i: FAIL HTTP=$CODE $(head -c 150 /tmp/resp.json)"
+              fi
             done
+            echo ">>> $LABEL: $OK ok / $FAIL fail, avg $(( TOTAL_T / (OK>0?OK:1) ))ms"
           }
 
-          test_model "nvidia/nemotron-3.5-lightning-30b-a3b" "nemotron-3.5-lightning"
-          test_model "meta/muse-glimmer-30b" "muse-glimmer-30b"
-          test_model "nvidia/nemotron-3-super-120b-a12b" "nemotron-3-super-120b-alt"
+          bench "nvidia/nemotron-3-super-120b-a12b" "nemotron3-super"
+          bench "meta/muse-glimmer-30b" "muse-glimmer"
           echo DONE
