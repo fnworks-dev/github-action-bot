@@ -1,0 +1,45 @@
+name: NIM Model Test (temp)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Test nemotron-3.5-lightning-30b-a3b
+        env:
+          NIM_API_KEY: ${{ secrets.NIM_API_KEY }}
+        run: |
+          MODEL="nvidia/nemotron-3.5-lightning-30b-a3b"
+
+          echo "=== Test 1: intent detection style prompt ==="
+          START=$(date +%s)
+          curl -s -m 60 -w "\nHTTP %{http_code}\n" \
+            https://integrate.api.nvidia.com/v1/chat/completions \
+            -H "Authorization: Bearer $NIM_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "model": "'$MODEL'",
+              "max_tokens": 1000,
+              "temperature": 0.1,
+              "messages": [{"role": "user", "content": "You are classifying Reddit posts from freelance/hiring subreddits. Determine if the post author intends to HIRE someone for paid or unpaid creative/technical work.\n\nPost title: [For hire] 2D artist open for commissions\nPost content: I do character art, 5+ yrs exp, portfolio in profile\n\nA post IS a job post (isJob=true) if the author seeks someone to do work for them: paid gigs, unpaid collaborations, hobby projects recruiting help, or revenue-share offers.\nA post is NOT a job post (isJob=false) if: author seeks advice/feedback, offers their own services, sells products, asks tool recommendations, or shares work.\n\nReturn ONLY JSON: {\"isJob\": true|false, \"confidence\": 0.0-1.0, \"reason\": \"one sentence\"}"}]
+            }'
+          END=$(date +%s)
+          echo "TIME: $((END-START))s"
+
+          echo "=== Test 2: categorization style prompt ==="
+          START=$(date +%s)
+          curl -s -m 60 -w "\nHTTP %{http_code}\n" \
+            https://integrate.api.nvidia.com/v1/chat/completions \
+            -H "Authorization: Bearer $NIM_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "model": "'$MODEL'",
+              "max_tokens": 1500,
+              "temperature": 0.1,
+              "messages": [{"role": "user", "content": "You are a job posting classifier. Analyze this job post and determine which professions it matches.\n\nJOB POST:\nTitle: Need someone to build a landing page and write the copy for it\nNext.js + Webflow, $1500, 2 weeks\n\nPROFESSION OPTIONS:\n- developer: Software development, programming, web/mobile app development, frontend/backend engineering\n- artist: Visual art, illustration, graphic design, UI/UX design, concept art, game art\n- writer: Writing, copywriting, content writing, technical writing, scriptwriting\n\nReturn ONLY a JSON array with format: {\"matches\": [{\"profession\": \"profession-id\", \"confidence\": 0.0-1.0}]}\nOnly include professions with confidence >= 0.5.\n\nReturn ONLY the JSON, no explanation."}]
+            }'
+          END=$(date +%s)
+          echo "TIME: $((END-START))s"
