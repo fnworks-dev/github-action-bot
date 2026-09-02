@@ -54,7 +54,7 @@ Return ONLY the JSON, no explanation.`;
     const content = await generateTextWithFallback({
         prompt,
         temperature: 0.1,
-        maxOutputTokens: 500,
+        maxOutputTokens: 1500,
         taskLabel: 'categorization',
     });
 
@@ -149,7 +149,7 @@ Summary:
             const raw = await generateTextWithFallback({
                 prompt,
                 temperature: 0.3,
-                maxOutputTokens: 200,
+                maxOutputTokens: 1000,
                 taskLabel: 'summary generation',
             });
 

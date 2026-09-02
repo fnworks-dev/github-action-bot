@@ -25,11 +25,19 @@ function sanitizeText(text) {
         .trim();
 }
 function extractGeminiText(data) {
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (typeof text !== 'string') {
+    const parts = data.candidates?.[0]?.content?.parts || [];
+    // Thinking models (e.g. gemma-4) emit `thought: true` parts before the answer.
+    // Prefer non-thought parts; fall back to all parts for non-thinking models.
+    let texts = parts
+        .filter((part) => part.thought !== true)
+        .map((part) => (typeof part?.text === 'string' ? part.text : ''));
+    if (texts.every((t) => t.length === 0)) {
+        texts = parts.map((part) => (typeof part?.text === 'string' ? part.text : ''));
+    }
+    if (texts.length === 0) {
         return null;
     }
-    const cleaned = sanitizeText(text);
+    const cleaned = sanitizeText(texts.join(''));
     return cleaned.length > 0 ? cleaned : null;
 }
 function extractNvidiaNimText(data) {
@@ -101,6 +109,51 @@ async function runProviderWithRetries(provider, taskLabel, fn) {
     throw lastError || new ProviderError(provider, null, false, `${provider} failed for ${taskLabel}`);
 }
 async function generateWithGemini(options) {
+    const models = config.ai.geminiModels || [];
+    const keys = [config.ai.geminiKey, ...(config.ai.geminiBackupKeys || [])].filter(Boolean);
+    const baseUrl = config.ai.geminiBaseUrl || '';
+    if (baseUrl && models.length > 0 && keys.length > 0) {
+        let lastError = null;
+        for (let ki = 0; ki < keys.length; ki += 1) {
+            const key = keys[ki];
+            for (const model of models) {
+                const url = `${baseUrl}/${model}:generateContent?key=${key}`;
+                let response;
+                try {
+                    response = await fetchWithTimeout(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{
+                                    parts: [{ text: options.prompt }]
+                                }],
+                            generationConfig: {
+                                temperature: options.temperature,
+                                maxOutputTokens: options.maxOutputTokens,
+                            }
+                        })
+                    }, DEFAULT_TIMEOUT_MS);
+                }
+                catch (error) {
+                    lastError = toProviderError('Gemini', error);
+                    continue;
+                }
+                if (!response.ok) {
+                    const errorText = await response.text().catch(() => '');
+                    lastError = new ProviderError('Gemini', response.status, RETRYABLE_STATUS_CODES.has(response.status), `Gemini API error: ${response.status} ${errorText.slice(0, 200)}`);
+                    continue;
+                }
+                const data = await response.json();
+                const text = extractGeminiText(data);
+                if (!text) {
+                    lastError = new ProviderError('Gemini', response.status, true, 'Gemini API returned empty content');
+                    continue;
+                }
+                return text;
+            }
+        }
+        throw lastError || new ProviderError('Gemini', null, true, 'All Gemini keys/models failed');
+    }
     let response;
     try {
         response = await fetchWithTimeout(`${config.ai.geminiUrl}?key=${config.ai.geminiKey}`, {
@@ -167,15 +220,6 @@ async function generateWithNvidiaNim(options) {
 }
 export async function generateTextWithFallback(options) {
     const errors = [];
-    if (config.ai.nvidiaNimKey) {
-        try {
-            return await runProviderWithRetries('NVIDIA NIM', options.taskLabel, () => generateWithNvidiaNim(options));
-        }
-        catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            errors.push(`NVIDIA NIM: ${message}`);
-        }
-    }
     if (config.ai.geminiKey) {
         try {
             return await runProviderWithRetries('Gemini', options.taskLabel, () => generateWithGemini(options));
@@ -183,6 +227,15 @@ export async function generateTextWithFallback(options) {
         catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             errors.push(`Gemini: ${message}`);
+        }
+    }
+    if (config.ai.nvidiaNimKey) {
+        try {
+            return await runProviderWithRetries('NVIDIA NIM', options.taskLabel, () => generateWithNvidiaNim(options));
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            errors.push(`NVIDIA NIM: ${message}`);
         }
     }
     throw new Error(errors.length > 0

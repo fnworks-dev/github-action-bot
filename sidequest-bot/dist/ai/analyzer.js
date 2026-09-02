@@ -37,7 +37,7 @@ async function analyzeWithAI(title, content) {
     const contentText = await generateTextWithFallback({
         prompt,
         temperature: 0.2,
-        maxOutputTokens: 800,
+        maxOutputTokens: 2500,
         taskLabel: 'job analysis',
     });
     const cleaned = contentText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
@@ -58,9 +58,6 @@ async function analyzeWithAI(title, content) {
         return getEmptyAnalysis();
     }
 }
-/**
- * Return empty analysis structure
- */
 function getEmptyAnalysis() {
     return {
         project_type: null,
@@ -72,12 +69,8 @@ function getEmptyAnalysis() {
         green_flags: [],
     };
 }
-/**
- * Main analysis function - tries AI, falls back to empty
- */
 export async function analyzeJob(title, content) {
     const text = `${title}\n\n${content || ''}`.trim();
-    // Skip analysis for very short posts
     if (text.length < 100) {
         console.log('📝 Post too short for deep analysis');
         return getEmptyAnalysis();
@@ -90,7 +83,6 @@ export async function analyzeJob(title, content) {
             console.warn('⚠️ AI analysis failed:', error);
         }
     }
-    // Return empty if both fail
     console.log('⚠️ AI analysis unavailable, returning empty analysis');
     return getEmptyAnalysis();
 }

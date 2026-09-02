@@ -42,7 +42,7 @@ async function analyzeWithAI(title: string, content: string | null): Promise<Job
     const contentText = await generateTextWithFallback({
         prompt,
         temperature: 0.2,
-        maxOutputTokens: 800,
+        maxOutputTokens: 2500,
         taskLabel: 'job analysis',
     });
     const cleaned = contentText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();

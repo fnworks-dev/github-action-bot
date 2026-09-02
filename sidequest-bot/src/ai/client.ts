@@ -10,7 +10,7 @@ interface AITextOptions {
 interface GeminiResponse {
     candidates?: Array<{
         content?: {
-            parts?: Array<{ text?: string }>;
+            parts?: Array<{ text?: string; thought?: boolean }>;
         };
     }>;
 }
@@ -52,12 +52,22 @@ function sanitizeText(text: string): string {
 }
 
 function extractGeminiText(data: GeminiResponse): string | null {
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (typeof text !== 'string') {
+    const parts = data.candidates?.[0]?.content?.parts || [];
+
+    // Thinking models (e.g. gemma-4) emit `thought: true` parts before the answer.
+    // Prefer non-thought parts; fall back to all parts for non-thinking models.
+    let texts = parts
+        .filter((part) => part.thought !== true)
+        .map((part) => (typeof part?.text === 'string' ? part.text : ''));
+    if (texts.every((t) => t.length === 0)) {
+        texts = parts.map((part) => (typeof part?.text === 'string' ? part.text : ''));
+    }
+
+    if (texts.length === 0) {
         return null;
     }
 
-    const cleaned = sanitizeText(text);
+    const cleaned = sanitizeText(texts.join(''));
     return cleaned.length > 0 ? cleaned : null;
 }
 

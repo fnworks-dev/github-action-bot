@@ -367,7 +367,7 @@ async function detectIntentWithAI(title: string, content: string | null): Promis
     const contentText = await generateTextWithFallback({
         prompt,
         temperature: 0.1,
-        maxOutputTokens: 300,
+        maxOutputTokens: 1000,
         taskLabel: 'intent detection',
     });
     const cleaned = contentText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();

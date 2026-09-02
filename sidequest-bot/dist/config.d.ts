@@ -6,6 +6,9 @@ export declare const config: {
     };
     ai: {
         geminiKey: string;
+        geminiBackupKeys: string[];
+        geminiModels: string[];
+        geminiBaseUrl: string;
         geminiUrl: string;
         nvidiaNimKey: string;
         nvidiaNimUrl: string;

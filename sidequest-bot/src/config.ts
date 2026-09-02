@@ -16,6 +16,7 @@ export const config = {
             process.env.GEMINI_BACKUP_KEY_2 || '',
         ].filter((k) => k !== ''),
         geminiModels: [
+            'gemma-4-31b-it',
             'gemini-3.1-flash-lite-preview',
             'gemini-3-flash-preview',
             'gemini-2.5-flash',
