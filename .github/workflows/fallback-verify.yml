@@ -8,49 +8,33 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install + build
-        working-directory: ./sidequest-bot
-        run: npm ci && npm run build
-
-      - name: Verify fallback chain
-        working-directory: ./sidequest-bot
+      - name: Bench NIM backup candidates
         env:
           NIM_API_KEY: ${{ secrets.NIM_API_KEY }}
-          SIDEQUEST_AI_TIMEOUT_MS: '15000'
         run: |
-          cat > /tmp/verify.mjs << 'EOF'
-          // Test 1: all Gemini keys invalid -> NIM serves
-          process.env.GEMINI_API_KEY = "INVALID-A";
-          process.env.GEMINI_BACKUP_KEY_1 = "INVALID-B";
-          process.env.GEMINI_BACKUP_KEY_2 = "INVALID-C";
-          process.env.NIM_MODELS = "nvidia/nemotron-3-super-120b-a12b,meta/muse-glimmer-30b";
-          const { generateTextWithFallback } = await import(process.cwd() + "/dist/ai/client.js");
-
-          console.log("--- TEST 1: Gemini dead -> NIM primary");
-          const r1 = await generateTextWithFallback({ prompt: 'Reply with exactly: OK', temperature: 0, maxOutputTokens: 500, taskLabel: "t1-gemini-dead" });
-          console.log("T1 RESULT:", r1.trim().slice(0, 30));
-
-          console.log("--- TEST 2: NIM primary dead -> cascade to backup");
-          process.env.NIM_MODELS = "nvidia/nemotron-3.5-lightning-30b-a3b,meta/muse-glimmer-30b";
-          const mod = await import(process.cwd() + "/dist/ai/client.js");
-          const r2 = await mod.generateTextWithFallback({ prompt: 'Reply with exactly: OK2', temperature: 0, maxOutputTokens: 500, taskLabel: "t2-nim-cascade" });
-          console.log("T2 RESULT:", r2.trim().slice(0, 30));
-
-          console.log("--- TEST 3: everything dead -> clean error");
-          process.env.NIM_API_KEY = "INVALID-NIM";
-          delete process.env.GEMINI_API_KEY; delete process.env.GEMINI_BACKUP_KEY_1; delete process.env.GEMINI_BACKUP_KEY_2;
-          const mod2 = await import(process.cwd() + "/dist/ai/client.js");
-          try {
-            await mod2.generateTextWithFallback({ prompt: 'x', temperature: 0, maxOutputTokens: 100, taskLabel: "t3-all-dead" });
-            console.log("T3 FAIL: should have thrown");
-          } catch (e) { console.log("T3 OK threw:", e.message.slice(0, 120)); }
-          EOF
-          node /tmp/verify.mjs 2>&1 | grep -E "TEST|RESULT|OK|FAIL|Using|failed|⚠"
+          set -o pipefail
+          bench() {
+            MODEL="$1"; LABEL="$2"
+            for i in 1 2 3; do
+              START=$(date +%s%N)
+              CODE=$(curl -s -m 45 -o /tmp/r.json -w "%{http_code}" \
+                https://integrate.api.nvidia.com/v1/chat/completions \
+                -H "Authorization: Bearer $NIM_API_KEY" \
+                -H "Content-Type: application/json" \
+                -d '{
+                  "model": "'$MODEL'",
+                  "max_tokens": 500,
+                  "temperature": 0.1,
+                  "messages": [{"role": "user", "content": "Is the author of this post hiring someone? Reply ONLY JSON {\"isJob\": true|false, \"confidence\": 0.0-1.0}. Post: [For hire] 2D artist open for commissions"}]
+                }')
+              END=$(date +%s%N)
+              MS=$(( (END-START)/1000000 ))
+              OK=$(grep -c '"isJob"' /tmp/r.json || true)
+              echo "$LABEL call$i: HTTP=$CODE ${MS}ms isJob-json=$OK"
+            done
+          }
+          bench "nvidia/nemotron-3-super-120b-a12b" "super-120b"
+          bench "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning" "nano-omni-30b"
+          bench "mistralai/mistral-nemotron" "mistral-nemotron"
+          bench "meta/muse-glimmer-30b" "muse-glimmer"
+          echo DONE
