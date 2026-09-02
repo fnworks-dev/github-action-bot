@@ -1,5 +1,6 @@
 // Config 01: Developer + Artist (Primary hiring subreddits)
 import type { ProfessionConfig, Profession } from '../types.js';
+import { shouldFilterShared } from '../filters.js';
 
 export const config = {
     turso: {
@@ -129,7 +130,8 @@ export function shouldFilterPost(title: string, content: string): boolean {
         '[for hire]', 'i am a developer', 'i\'m a developer',
         'hire me', 'my portfolio', 'available for hire',
     ];
-    return negativeFilters.some((filter) => text.includes(filter.toLowerCase()));
+    return negativeFilters.some((filter) => text.includes(filter.toLowerCase()))
+        || shouldFilterShared(title, content);
 }
 
 export function getAllSubreddits(): string[] {

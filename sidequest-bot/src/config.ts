@@ -1,5 +1,6 @@
 // Configuration loaded from environment variables
 import type { ProfessionConfig, Profession } from './types.js';
+import { shouldFilterShared } from './filters.js';
 
 export const config = {
     // Turso Database
@@ -574,5 +575,5 @@ export function shouldFilterPost(title: string, content: string): boolean {
     const text = `${title} ${content || ''}`.toLowerCase();
     return negativeFilters.some(filter =>
         text.includes(filter.toLowerCase())
-    );
+    ) || shouldFilterShared(title, content);
 }

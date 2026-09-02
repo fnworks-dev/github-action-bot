@@ -51,6 +51,7 @@ interface RedditPost {
     url: string;
     created_utc: number;
     is_self: boolean;
+    over_18?: boolean;
 }
 
 function isPostFresh(createdUtc: number): boolean {
@@ -111,7 +112,13 @@ async function fetchSubreddit(subreddit: string): Promise<RawPost[]> {
         return [];
     }
 
-    return posts.map((post) => ({
+    // Drop NSFW-flagged posts at fetch time
+    const sfwPosts = posts.filter((post) => !post.over_18);
+    if (sfwPosts.length < posts.length) {
+        console.log(`   🚫 r/${subreddit}: dropped ${posts.length - sfwPosts.length} NSFW-flagged posts`);
+    }
+
+    return sfwPosts.map((post) => ({
         source: 'reddit' as const,
         sourceId: getSourceId(post),
         sourceUrl: `https://www.reddit.com${post.permalink}`,
