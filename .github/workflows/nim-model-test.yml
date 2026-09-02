@@ -6,40 +6,38 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
-      - name: Test nemotron-3.5-lightning-30b-a3b
+      - name: Compare fallback models
         env:
           NIM_API_KEY: ${{ secrets.NIM_API_KEY }}
         run: |
-          MODEL="nvidia/nemotron-3.5-lightning-30b-a3b"
+          test_model() {
+            MODEL="$1"
+            LABEL="$2"
+            for ATTEMPT in 1 2; do
+              START=$(date +%s)
+              RESP=$(curl -s -m 90 -w "\n%{http_code}" \
+                https://integrate.api.nvidia.com/v1/chat/completions \
+                -H "Authorization: Bearer $NIM_API_KEY" \
+                -H "Content-Type: application/json" \
+                -d '{
+                  "model": "'$MODEL'",
+                  "max_tokens": 800,
+                  "temperature": 0.1,
+                  "messages": [{"role": "user", "content": "Classify this Reddit post. Is the author hiring someone? Reply ONLY JSON {\"isJob\": true|false, \"confidence\": 0.0-1.0}.\n\nTitle: [For hire] 2D artist open for commissions\nContent: I do character art, 5+ yrs exp, portfolio in profile (author is OFFERING services, not hiring)"}]
+                }' 2>&1)
+              END=$(date +%s)
+              HTTP=$(echo "$RESP" | tail -1)
+              BODY=$(echo "$RESP" | head -n -1)
+              echo "=== $LABEL attempt $ATTEMPT: HTTP $HTTP, $((END-START))s"
+              echo "$BODY" | head -c 500
+              echo
+              if [ "$HTTP" = "200" ]; then break; fi
+              sleep 5
+            done
+          }
 
-          echo "=== Test 1: intent detection style prompt ==="
-          START=$(date +%s)
-          curl -s -m 60 -w "\nHTTP %{http_code}\n" \
-            https://integrate.api.nvidia.com/v1/chat/completions \
-            -H "Authorization: Bearer $NIM_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "model": "'$MODEL'",
-              "max_tokens": 1000,
-              "temperature": 0.1,
-              "messages": [{"role": "user", "content": "You are classifying Reddit posts from freelance/hiring subreddits. Determine if the post author intends to HIRE someone for paid or unpaid creative/technical work.\n\nPost title: [For hire] 2D artist open for commissions\nPost content: I do character art, 5+ yrs exp, portfolio in profile\n\nA post IS a job post (isJob=true) if the author seeks someone to do work for them: paid gigs, unpaid collaborations, hobby projects recruiting help, or revenue-share offers.\nA post is NOT a job post (isJob=false) if: author seeks advice/feedback, offers their own services, sells products, asks tool recommendations, or shares work.\n\nReturn ONLY JSON: {\"isJob\": true|false, \"confidence\": 0.0-1.0, \"reason\": \"one sentence\"}"}]
-            }'
-          END=$(date +%s)
-          echo "TIME: $((END-START))s"
-
-          echo "=== Test 2: categorization style prompt ==="
-          START=$(date +%s)
-          curl -s -m 60 -w "\nHTTP %{http_code}\n" \
-            https://integrate.api.nvidia.com/v1/chat/completions \
-            -H "Authorization: Bearer $NIM_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "model": "'$MODEL'",
-              "max_tokens": 1500,
-              "temperature": 0.1,
-              "messages": [{"role": "user", "content": "You are a job posting classifier. Analyze this job post and determine which professions it matches.\n\nJOB POST:\nTitle: Need someone to build a landing page and write the copy for it\nNext.js + Webflow, $1500, 2 weeks\n\nPROFESSION OPTIONS:\n- developer: Software development, programming, web/mobile app development, frontend/backend engineering\n- artist: Visual art, illustration, graphic design, UI/UX design, concept art, game art\n- writer: Writing, copywriting, content writing, technical writing, scriptwriting\n\nReturn ONLY a JSON array with format: {\"matches\": [{\"profession\": \"profession-id\", \"confidence\": 0.0-1.0}]}\nOnly include professions with confidence >= 0.5.\n\nReturn ONLY the JSON, no explanation."}]
-            }'
-          END=$(date +%s)
-          echo "TIME: $((END-START))s"
+          test_model "meta/llama-3.1-8b-instruct" "BASELINE-llama-3.1-8b"
+          test_model "nvidia/nemotron-3.5-lightning-30b-a3b" "nemotron-3.5-lightning"
+          test_model "meta/muse-glimmer-30b" "muse-glimmer-30b"
