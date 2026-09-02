@@ -94,7 +94,7 @@ Plus existing per-config `negativeFilters` (self-promotion, advice-seeking, surv
 ### SideQuest Reliability
 
 - **Failure alerting**: all 5 sidequest workflows post to Discord (`DISCORD_WEBHOOK_URL` secret) on `failure()`
-- **Dead-man switch**: `.github/workflows/sidequest-deadman.yml` — hourly cron checks last success of each bot workflow; alerts Discord if any is >8h stale
+- **Dead-man switch**: `.github/workflows/sidequest-deadman.yml` — hourly cron checks last success of each bot workflow; alerts Discord if any is >20h stale (GitHub Actions cron drops/delays scheduled runs under load — observed gaps up to 16h with ~20-30% missed 4h-cycles, so threshold must stay well above the 4h cadence)
 - **Retry/timeout budget**: 2 attempts per provider tier, 15s per request, 30min per run
 
 ## Why This Repository Exists

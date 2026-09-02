@@ -24,7 +24,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          STALE_HOURS=8
+          STALE_HOURS=20
           NOW=$(date +%s)
           NL=$'\n'
           ALERTS=""
