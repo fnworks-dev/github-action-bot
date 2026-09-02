@@ -8,27 +8,68 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Diagnose NIM models
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install + build
+        working-directory: ./sidequest-bot
+        run: npm ci && npm run build
+
+      - name: Verify fallback chain
+        working-directory: ./sidequest-bot
         env:
           NIM_API_KEY: ${{ secrets.NIM_API_KEY }}
+          SIDEQUEST_AI_TIMEOUT_MS: '15000'
         run: |
-          set -o pipefail
-          diag() {
-            MODEL="$1"; LABEL="$2"
-            CODE=$(curl -s -m 45 -o /tmp/r.json -w "%{http_code}" \
-              https://integrate.api.nvidia.com/v1/chat/completions \
-              -H "Authorization: Bearer $NIM_API_KEY" \
-              -H "Content-Type: application/json" \
-              -d '{
-                "model": "'$MODEL'",
-                "max_tokens": 500,
-                "temperature": 0.1,
-                "messages": [{"role": "user", "content": "Is the author of this post hiring someone? Reply ONLY JSON {\"isJob\": true|false, \"confidence\": 0.0-1.0}. Post: [For hire] 2D artist open for commissions"}]
-              }')
-            echo "=== $LABEL HTTP=$CODE"
-            cat /tmp/r.json | head -c 700
-            echo
+          cat > /tmp/verify.mjs << 'SCRIPT_EOF'
+          const results = [];
+          const report = (name, pass, detail) => { results.push({name, pass, detail}); console.log((pass ? "PASS" : "FAIL") + " | " + name + " | " + detail); };
+
+          // T1: all Gemini keys invalid -> NIM serves (primary super-120b, fallback nano-omni)
+          {
+            process.env.GEMINI_API_KEY = "INVALID-A";
+            process.env.GEMINI_BACKUP_KEY_1 = "INVALID-B";
+            process.env.GEMINI_BACKUP_KEY_2 = "INVALID-C";
+            process.env.NIM_MODELS = "nvidia/nemotron-3-super-120b-a12b,nvidia/nemotron-3-nano-omni-30b-a3b-reasoning";
+            const { generateTextWithFallback } = await import(process.cwd() + "/dist/ai/client.js");
+            try {
+              const r = await generateTextWithFallback({ prompt: 'Reply with exactly: OK', temperature: 0, maxOutputTokens: 500, taskLabel: "t1" });
+              report("T1 gemini-dead->NIM", r.trim().length > 0, "got: " + r.trim().slice(0, 30));
+            } catch (e) { report("T1 gemini-dead->NIM", false, e.message.slice(0, 150)); }
           }
-          diag "nvidia/nemotron-3-super-120b-a12b" "super-120b"
-          diag "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning" "nano-omni-30b"
-          echo DONE
+
+          // T2: NIM primary dead (lightning hangs) -> cascade to nano-omni
+          {
+            process.env.GEMINI_API_KEY = "INVALID-A";
+            process.env.GEMINI_BACKUP_KEY_1 = "INVALID-B";
+            process.env.GEMINI_BACKUP_KEY_2 = "INVALID-C";
+            process.env.NIM_MODELS = "nvidia/nemotron-3.5-lightning-30b-a3b,nvidia/nemotron-3-nano-omni-30b-a3b-reasoning";
+            const { generateTextWithFallback } = await import(process.cwd() + "/dist/ai/client.js");
+            try {
+              const r = await generateTextWithFallback({ prompt: 'Reply with exactly: OK2', temperature: 0, maxOutputTokens: 500, taskLabel: "t2" });
+              report("T2 nim-cascade", r.trim().length > 0, "got: " + r.trim().slice(0, 30));
+            } catch (e) { report("T2 nim-cascade", false, e.message.slice(0, 150)); }
+          }
+
+          // T3: everything dead -> clean error
+          {
+            process.env.NIM_API_KEY = "INVALID-NIM";
+            delete process.env.GEMINI_API_KEY; delete process.env.GEMINI_BACKUP_KEY_1; delete process.env.GEMINI_BACKUP_KEY_2;
+            const { generateTextWithFallback } = await import(process.cwd() + "/dist/ai/client.js");
+            try {
+              await generateTextWithFallback({ prompt: 'x', temperature: 0, maxOutputTokens: 100, taskLabel: "t3" });
+              report("T3 all-dead throws", false, "did not throw");
+            } catch (e) { report("T3 all-dead throws", e.message.includes("All AI providers failed"), e.message.slice(0, 100)); }
+          }
+
+          const fails = results.filter(r => !r.pass).length;
+          console.log("SUMMARY: " + (results.length - fails) + "/" + results.length + " passed");
+          process.exit(fails > 0 ? 1 : 0);
+          SCRIPT_EOF
+          node /tmp/verify.mjs 2>&1 | tee /tmp/verify.log
+          grep -E "^(PASS|FAIL|SUMMARY)" /tmp/verify.log

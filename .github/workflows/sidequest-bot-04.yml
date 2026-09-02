@@ -46,7 +46,7 @@ jobs:
           GEMINI_BACKUP_KEY_2: ${{ secrets.GEMINI_BACKUP_KEY_2 }}
           NIM_API_KEY: ${{ secrets.NIM_API_KEY }}
           NIM_MODEL: nvidia/nemotron-3-super-120b-a12b
-          NIM_MODELS: nvidia/nemotron-3-super-120b-a12b,meta/muse-glimmer-30b
+          NIM_MODELS: nvidia/nemotron-3-super-120b-a12b,nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
           NVIDIA_NIM_API_KEY: ${{ secrets.NIM_API_KEY }}
           NVIDIA_NIM_MODEL: nvidia/nemotron-3-super-120b-a12b
           CONFIG: '04'
