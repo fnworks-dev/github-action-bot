@@ -53,8 +53,20 @@ jobs:
           GEMINI_BACKUP_KEY_2: ${{ secrets.GEMINI_BACKUP_KEY_2 }}
           NIM_API_KEY: ${{ secrets.NIM_API_KEY }}
           NIM_MODEL: nvidia/nemotron-3-super-120b-a12b
+          NIM_MODELS: nvidia/nemotron-3-super-120b-a12b,meta/muse-glimmer-30b
+          SIDEQUEST_AI_MAX_ATTEMPTS: '2'
+          SIDEQUEST_AI_TIMEOUT_MS: '15000'
           BACKFILL_SINCE: ${{ inputs.since }}
           BACKFILL_LIMIT: ${{ inputs.limit }}
           BACKFILL_DRY_RUN: ${{ inputs.dry_run }}
           BACKFILL_SLEEP_MS: ${{ inputs.sleep_ms }}
         run: npm run backfill:summaries
+
+      - name: Alert on failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d '{"content": "🔴 SideQuest Backfill failed — run https://github.com/fnworks-dev/github-action-bot/actions/runs/${{ github.run_id }}"}'

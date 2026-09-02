@@ -258,46 +258,59 @@ async function generateWithGemini(options: AITextOptions): Promise<string> {
 }
 
 async function generateWithNvidiaNim(options: AITextOptions): Promise<string> {
-    let response: Response;
+    const models = config.ai.nvidiaNimModels.length > 0
+        ? config.ai.nvidiaNimModels
+        : [config.ai.nvidiaNimModel];
 
-    try {
-        response = await fetchWithTimeout(config.ai.nvidiaNimUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.ai.nvidiaNimKey}`,
-            },
-            body: JSON.stringify({
-                model: config.ai.nvidiaNimModel,
-                max_tokens: options.maxOutputTokens,
-                temperature: options.temperature,
-                messages: [{
-                    role: 'user',
-                    content: options.prompt,
-                }],
-            })
-        }, DEFAULT_TIMEOUT_MS);
-    } catch (error) {
-        throw toProviderError('NVIDIA NIM', error);
+    let lastError: ProviderError | null = null;
+
+    for (const model of models) {
+        let response: Response;
+
+        try {
+            response = await fetchWithTimeout(config.ai.nvidiaNimUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${config.ai.nvidiaNimKey}`,
+                },
+                body: JSON.stringify({
+                    model,
+                    max_tokens: options.maxOutputTokens,
+                    temperature: options.temperature,
+                    messages: [{
+                        role: 'user',
+                        content: options.prompt,
+                    }],
+                })
+            }, DEFAULT_TIMEOUT_MS);
+        } catch (error) {
+            lastError = toProviderError('NVIDIA NIM', error);
+            continue;
+        }
+
+        if (!response.ok) {
+            const errorText = await response.text().catch(() => '');
+            lastError = new ProviderError(
+                'NVIDIA NIM',
+                response.status,
+                RETRYABLE_STATUS_CODES.has(response.status),
+                `NVIDIA NIM API error (${model}): ${response.status} ${errorText.slice(0, 200)}`
+            );
+            continue;
+        }
+
+        const data = await response.json() as NvidiaNimResponse;
+        const text = extractNvidiaNimText(data);
+        if (!text) {
+            lastError = new ProviderError('NVIDIA NIM', response.status, true, `NVIDIA NIM API (${model}) returned empty content`);
+            continue;
+        }
+
+        return text;
     }
 
-    if (!response.ok) {
-        const errorText = await response.text().catch(() => '');
-        throw new ProviderError(
-            'NVIDIA NIM',
-            response.status,
-            RETRYABLE_STATUS_CODES.has(response.status),
-            `NVIDIA NIM API error: ${response.status} ${errorText.slice(0, 200)}`
-        );
-    }
-
-    const data = await response.json() as NvidiaNimResponse;
-    const text = extractNvidiaNimText(data);
-    if (!text) {
-        throw new ProviderError('NVIDIA NIM', response.status, true, 'NVIDIA NIM API returned empty content');
-    }
-
-    return text;
+    throw lastError || new ProviderError('NVIDIA NIM', null, true, 'All NVIDIA NIM models failed');
 }
 
 export async function generateTextWithFallback(options: AITextOptions): Promise<string> {

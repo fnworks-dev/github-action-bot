@@ -41,6 +41,12 @@ export const config = {
                 .trim()
                 .replace(/\/+$/, '')}/chat/completions`,
         nvidiaNimModel: process.env.NIM_MODEL || process.env.NVIDIA_NIM_MODEL || 'nvidia/nemotron-3-super-120b-a12b',
+        // Model cascade for the NIM tier: primary first, then backups.
+        // Override via comma-separated NIM_MODELS / NVIDIA_NIM_MODELS env.
+        nvidiaNimModels: (process.env.NIM_MODELS || process.env.NVIDIA_NIM_MODELS || '')
+            .split(',')
+            .map((m) => m.trim())
+            .filter(Boolean),
     },
 
     // Max post age (24 hours)
