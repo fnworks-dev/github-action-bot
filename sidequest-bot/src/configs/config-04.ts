@@ -20,7 +20,7 @@ export const config = {
             : `${(process.env.NIM_BASE_URL || process.env.NVIDIA_NIM_URL || 'https://integrate.api.nvidia.com/v1')
                 .trim()
                 .replace(/\/+$/, '')}/chat/completions`,
-        nvidiaNimModel: process.env.NIM_MODEL || process.env.NVIDIA_NIM_MODEL || 'meta/llama-3.1-8b-instruct',
+        nvidiaNimModel: process.env.NIM_MODEL || process.env.NVIDIA_NIM_MODEL || 'nvidia/nemotron-3-super-120b-a12b',
     },
     maxPostAgeMs: 24 * 60 * 60 * 1000,
     cleanup: { deleteAfterDays: 30 },

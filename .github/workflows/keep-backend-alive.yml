@@ -2,26 +2,32 @@ name: Keep Backend Alive
 
 on:
   schedule:
-    # Run every 10 minutes to prevent Render free tier cold starts
-    # Render spins down after 15 minutes of inactivity
-    # GitHub Actions can have 5-30 min delays, so 10 min gives buffer
+    # Periodic backend health check. UptimeRobot is the primary external monitor.
     - cron: '*/10 * * * *'
-  workflow_dispatch: # Allow manual trigger
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keep-backend-alive-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   keep-alive:
     if: github.repository == 'fnworks-dev/github-action-bot'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Ping Backend Health Endpoint (Multiple attempts)
+      - name: Check Backend Health Endpoint
         run: |
-          echo "Pinging backend to keep it alive..."
+          echo "Checking backend health endpoint..."
 
-          # First ping - wake up the server
+          # First health check
           response1=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 https://fnworks-dev-backend-th12.onrender.com/health || echo "000")
           echo "First ping response: $response1"
 
-          # Wait 5 seconds for server to fully warm up
+          # Wait briefly before verification
           sleep 5
 
           # Second ping - confirm server is responding
@@ -29,9 +35,9 @@ jobs:
           echo "Second ping response: $response2"
 
           if [ "$response2" -eq 200 ]; then
-            echo "Backend is alive and responding"
+            echo "Backend is responding"
           else
-            echo "Backend may be slow to start or having issues"
+            echo "Backend may be slow or having issues"
           fi
 
       - name: Verify Backend Response

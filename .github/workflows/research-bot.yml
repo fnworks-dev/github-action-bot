@@ -6,10 +6,18 @@ on:
     - cron: '0 17 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: research-bot-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   run-bot:
     if: github.repository == 'fnworks-dev/github-action-bot'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout

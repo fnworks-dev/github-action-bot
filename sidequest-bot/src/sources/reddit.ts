@@ -39,10 +39,9 @@ function getSourceId(post: RedditPost): string {
     return `reddit_${hash.substring(0, 12)}`;
 }
 
-// Fetch posts from a single subreddit using Arctic Shift mirror
-// This bypasses GitHub Actions IP blocks that affect direct Reddit API
+// Fetch posts from a single subreddit using the configured Reddit data source
 async function fetchSubreddit(subreddit: string, retries = 2): Promise<RawPost[]> {
-    // Arctic Shift mirror - escapes GitHub Actions IP blocks
+    // Arctic Shift JSON API endpoint
     const url = `https://arctic-shift.photon-reddit.com/api/posts/search?subreddit=${subreddit}&limit=25`;
 
     for (let attempt = 0; attempt <= retries; attempt++) {

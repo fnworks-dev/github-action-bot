@@ -3,7 +3,7 @@
  * SideQuest Bot - Split Config Version
  * Usage: CONFIG=01 npm start
  * 
- * Uses Arctic Shift API to bypass GitHub Actions IP blocks
+ * Uses Arctic Shift API as the configured Reddit data source.
  */
 
 import { createClient } from '@libsql/client';
@@ -74,7 +74,7 @@ function getSourceId(post: RedditPost): string {
     return `reddit_${hash.substring(0, 12)}`;
 }
 
-// Fetch posts from Arctic Shift mirror (bypasses GitHub Actions IP blocks)
+// Fetch posts from the configured Reddit data source
 async function fetchSubreddit(subreddit: string): Promise<RawPost[]> {
     const url = `https://arctic-shift.photon-reddit.com/api/posts/search?subreddit=${subreddit}&limit=25`;
 
