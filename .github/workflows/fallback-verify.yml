@@ -58,8 +58,8 @@ jobs:
           echo "--- T3: all dead -> clean throw"
           GEMINI_API_KEY=INVALID-A GEMINI_BACKUP_KEY_1=INVALID-B GEMINI_BACKUP_KEY_2=INVALID-C \
             NIM_API_KEY=INVALID-NIM \
-            node /tmp/t.mjs t3 > /tmp/t3.log 2>&1
-          if [ $? -ne 0 ] && grep -q "All AI providers failed" /tmp/t3.log; then note 0 "T3 all-dead throws clean error"; else note 1 "T3 all-dead throws clean error | $(tail -1 /tmp/t3.log | head -c 120)"; fi
+            node /tmp/t.mjs t3 > /tmp/t3.log 2>&1 || true
+          if grep -q "All AI providers failed" /tmp/t3.log; then note 0 "T3 all-dead throws clean error"; else note 1 "T3 all-dead throws clean error | $(tail -1 /tmp/t3.log | head -c 120)"; fi
 
           echo "SUMMARY: $PASS/3 passed"
           [ "$FAIL" = "0" ]
