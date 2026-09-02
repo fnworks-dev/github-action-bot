@@ -43,14 +43,41 @@ This public repository is used to run GitHub Actions with unlimited free minutes
 - **Purpose**: Discovers and analyzes problems from various sources, scores them for relevance, saves to database, and sends Discord notifications
 - **Source Code**: `research-bot/`
 
-### SideQuest Bot
+### SideQuest Bots (Split Runs)
 
-**File**: `.github/workflows/sidequest-bot.yml`
+**Files**: `.github/workflows/sidequest-bot-01.yml` … `sidequest-bot-04.yml`
 
-- **Schedule**: Every 4 hours (`0 */4 * * *`, UTC)
-- **Purpose**: Scrapes SideQuest job sources, enriches with AI, and writes to SideQuest `job_posts`
-- **Source Code**: `sidequest-bot/`
-- **Run Health**: Writes run tracking rows to `sidequest_runs` and fails when feed freshness is stale beyond threshold
+- **Schedule**: every 4 hours each, staggered — 01 at :00 (0,4,8…UTC), 02 at :30, 03/04 same pattern offset +2h; effective coverage every 2 hours
+- **Purpose**: scrape Reddit hiring subreddits via Arctic Shift API, detect job intent, categorize profession, analyze, summarize, write to SideQuest `job_posts` (Turso/LibSQL)
+- **Configs**: `sidequest-bot/src/configs/config-01.ts` (Dev+Artist) … `config-04.ts` (VA+Startups); selected via `CONFIG` env
+- **Timeout**: 30 min per run (`timeout-minutes: 30`; raised for thinking-model latency)
+- **Concurrency**: per-workflow group with `cancel-in-progress: true`
+- **Legacy**: `.github/workflows/sidequest-bot.yml` is workflow_dispatch-only (dormant since 2026-02); split workflows are production
+
+### SideQuest Backfill Summaries
+
+**File**: `.github/workflows/sidequest-backfill-summaries.yml`
+
+- **Trigger**: manual (`workflow_dispatch` only)
+- **Purpose**: regenerate AI summaries for existing `job_posts` rows
+
+#### AI Fallback Chain (SideQuest)
+
+All AI tasks (intent detection, categorization, analysis, summaries) use `sidequest-bot/src/ai/client.ts`:
+
+1. **Gemini cascade** — 3 keys × 5 models, key-major order:
+   - `GEMINI_API_KEY` → `GEMINI_BACKUP_KEY_1` → `GEMINI_BACKUP_KEY_2`
+   - Models per key: `gemma-4-31b-it` → `gemini-3.1-flash-lite-preview` → `gemini-3-flash-preview` → `gemini-2.5-flash` → `gemini-2.5-flash-lite`
+2. **NVIDIA NIM** — `nvidia/nemotron-3-super-120b-a12b` (`NIM_API_KEY`)
+
+Notes:
+- `gemma-4-31b-it` is a thinking model; client extracts non-`thought` parts only (thinking text never leaks into parsed JSON)
+- Thinking tokens count against `maxOutputTokens`; budgets: intent 1000, categorization 1500/1000 (batch), analysis 2500
+- Retryable HTTP: 408/429/500/502/503/504. `SIDEQUEST_AI_MAX_ATTEMPTS=1` in CI — retry happens via the key×model cascade, not per-provider loops
+- Per-request timeout: `SIDEQUEST_AI_TIMEOUT_MS=8000`
+- NIM model history: `meta/llama-3.1-8b-instruct` hit NVIDIA EOL 2026-08-26; `nvidia/nemotron-3.5-lightning-30b-a3b` listed but unusable (inference hangs); `meta/muse-glimmer-30b` works but 12-25s/call exceeds the 8s timeout. If swapping NIM models, verify latency + JSON reliability in CI first
+- Task-level fallbacks: keyword-based categorization and heuristic intent detection run when all AI providers fail
+- **Run Health**: writes run tracking rows to `sidequest_runs`, fails on stale feed freshness beyond threshold
 - **Optional Secrets**: `SIDEQUEST_REDDIT_CLIENT_ID`, `SIDEQUEST_REDDIT_CLIENT_SECRET` for Reddit OAuth fetches
 
 ## Why This Repository Exists
