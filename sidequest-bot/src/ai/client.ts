@@ -24,7 +24,8 @@ interface NvidiaNimResponse {
 }
 
 const DEFAULT_TIMEOUT_MS = parsePositiveInt(process.env.SIDEQUEST_AI_TIMEOUT_MS, 15_000);
-const PROXY_TIMEOUT_MS = parsePositiveInt(process.env.LLM_PROXY_TIMEOUT_MS, 30_000);
+// gpt-oss normally answers in 2-6s; stalls happen, so fail fast to the next model/tier.
+const PROXY_TIMEOUT_MS = parsePositiveInt(process.env.LLM_PROXY_TIMEOUT_MS, 20_000);
 const DEFAULT_MAX_ATTEMPTS = parsePositiveInt(process.env.SIDEQUEST_AI_MAX_ATTEMPTS, 2);
 const DEFAULT_RETRY_BASE_DELAY_MS = parsePositiveInt(process.env.SIDEQUEST_AI_RETRY_BASE_DELAY_MS, 1_500);
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
@@ -125,7 +126,7 @@ function toProviderError(provider: string, error: unknown): ProviderError {
     }
 
     if (isAbortError(error)) {
-        return new ProviderError(provider, null, true, `${provider} request timed out after ${DEFAULT_TIMEOUT_MS}ms`);
+        return new ProviderError(provider, null, true, `${provider} request timed out`);
     }
 
     const message = error instanceof Error ? error.message : String(error);
@@ -135,11 +136,12 @@ function toProviderError(provider: string, error: unknown): ProviderError {
 async function runProviderWithRetries(
     provider: string,
     taskLabel: string,
-    fn: () => Promise<string>
+    fn: () => Promise<string>,
+    maxAttempts = DEFAULT_MAX_ATTEMPTS
 ): Promise<string> {
     let lastError: ProviderError | null = null;
 
-    for (let attempt = 1; attempt <= DEFAULT_MAX_ATTEMPTS; attempt += 1) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         try {
             console.log(`🤖 Using ${provider} for ${taskLabel} (attempt ${attempt}/${DEFAULT_MAX_ATTEMPTS})`);
             return await fn();
@@ -290,7 +292,7 @@ async function generateWithOpenAICompat(
                 })
             }, timeoutMs);
         } catch (error) {
-            lastError = toProviderError(provider, error);
+            lastError = toProviderError(`${provider} (${model})`, error);
             continue;
         }
 
@@ -339,14 +341,15 @@ export function hasAIProvider(): boolean {
 }
 
 export async function generateTextWithFallback(options: AITextOptions): Promise<string> {
-    const tiers: Array<[string, boolean, () => Promise<string>]> = [
-        ['LLM Proxy', Boolean(config.ai.proxyKey && config.ai.proxyModels.length), () => generateWithProxy(options)],
-        ['Gemini', Boolean(config.ai.geminiKey), () => generateWithGemini(options)],
-        ['NVIDIA NIM', Boolean(config.ai.nvidiaNimKey), () => generateWithNvidiaNim(options)],
+    // [name, enabled, run, attempts]. Proxy gets 1 attempt: its model list is already the retry.
+    const tiers: Array<[string, boolean, () => Promise<string>, number]> = [
+        ['LLM Proxy', Boolean(config.ai.proxyKey && config.ai.proxyModels.length), () => generateWithProxy(options), 1],
+        ['Gemini', Boolean(config.ai.geminiKey), () => generateWithGemini(options), DEFAULT_MAX_ATTEMPTS],
+        ['NVIDIA NIM', Boolean(config.ai.nvidiaNimKey), () => generateWithNvidiaNim(options), DEFAULT_MAX_ATTEMPTS],
     ];
     const errors: string[] = [];
 
-    for (const [name, enabled, run] of tiers) {
+    for (const [name, enabled, run, attempts] of tiers) {
         if (!enabled) continue;
         const failures = consecutiveFailures.get(name) || 0;
         if (failures >= CIRCUIT_BREAK_AFTER) {
@@ -354,7 +357,7 @@ export async function generateTextWithFallback(options: AITextOptions): Promise<
             continue;
         }
         try {
-            const text = await runProviderWithRetries(name, options.taskLabel, run);
+            const text = await runProviderWithRetries(name, options.taskLabel, run, attempts);
             consecutiveFailures.set(name, 0);
             return text;
         } catch (error) {
