@@ -24,6 +24,7 @@ interface NvidiaNimResponse {
 }
 
 const DEFAULT_TIMEOUT_MS = parsePositiveInt(process.env.SIDEQUEST_AI_TIMEOUT_MS, 15_000);
+const PROXY_TIMEOUT_MS = parsePositiveInt(process.env.LLM_PROXY_TIMEOUT_MS, 30_000);
 const DEFAULT_MAX_ATTEMPTS = parsePositiveInt(process.env.SIDEQUEST_AI_MAX_ATTEMPTS, 2);
 const DEFAULT_RETRY_BASE_DELAY_MS = parsePositiveInt(process.env.SIDEQUEST_AI_RETRY_BASE_DELAY_MS, 1_500);
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
@@ -257,22 +258,26 @@ async function generateWithGemini(options: AITextOptions): Promise<string> {
     return text;
 }
 
-async function generateWithNvidiaNim(options: AITextOptions): Promise<string> {
-    const models = config.ai.nvidiaNimModels.length > 0
-        ? config.ai.nvidiaNimModels
-        : [config.ai.nvidiaNimModel];
-
+// OpenAI-compatible chat completions (NVIDIA NIM, fnworks llm-proxy).
+async function generateWithOpenAICompat(
+    provider: string,
+    url: string,
+    key: string,
+    models: string[],
+    timeoutMs: number,
+    options: AITextOptions
+): Promise<string> {
     let lastError: ProviderError | null = null;
 
     for (const model of models) {
         let response: Response;
 
         try {
-            response = await fetchWithTimeout(config.ai.nvidiaNimUrl, {
+            response = await fetchWithTimeout(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${config.ai.nvidiaNimKey}`,
+                    'Authorization': `Bearer ${key}`,
                 },
                 body: JSON.stringify({
                     model,
@@ -283,19 +288,19 @@ async function generateWithNvidiaNim(options: AITextOptions): Promise<string> {
                         content: options.prompt,
                     }],
                 })
-            }, DEFAULT_TIMEOUT_MS);
+            }, timeoutMs);
         } catch (error) {
-            lastError = toProviderError('NVIDIA NIM', error);
+            lastError = toProviderError(provider, error);
             continue;
         }
 
         if (!response.ok) {
             const errorText = await response.text().catch(() => '');
             lastError = new ProviderError(
-                'NVIDIA NIM',
+                provider,
                 response.status,
                 RETRYABLE_STATUS_CODES.has(response.status),
-                `NVIDIA NIM API error (${model}): ${response.status} ${errorText.slice(0, 200)}`
+                `${provider} API error (${model}): ${response.status} ${errorText.slice(0, 200)}`
             );
             continue;
         }
@@ -303,38 +308,61 @@ async function generateWithNvidiaNim(options: AITextOptions): Promise<string> {
         const data = await response.json() as NvidiaNimResponse;
         const text = extractNvidiaNimText(data);
         if (!text) {
-            lastError = new ProviderError('NVIDIA NIM', response.status, true, `NVIDIA NIM API (${model}) returned empty content`);
+            lastError = new ProviderError(provider, response.status, true, `${provider} API (${model}) returned empty content`);
             continue;
         }
 
         return text;
     }
 
-    throw lastError || new ProviderError('NVIDIA NIM', null, true, 'All NVIDIA NIM models failed');
+    throw lastError || new ProviderError(provider, null, true, `All ${provider} models failed`);
+}
+
+function generateWithNvidiaNim(options: AITextOptions): Promise<string> {
+    const models = config.ai.nvidiaNimModels.length > 0
+        ? config.ai.nvidiaNimModels
+        : [config.ai.nvidiaNimModel];
+    return generateWithOpenAICompat('NVIDIA NIM', config.ai.nvidiaNimUrl, config.ai.nvidiaNimKey, models, DEFAULT_TIMEOUT_MS, options);
+}
+
+function generateWithProxy(options: AITextOptions): Promise<string> {
+    return generateWithOpenAICompat('LLM Proxy', config.ai.proxyUrl, config.ai.proxyKey, config.ai.proxyModels, PROXY_TIMEOUT_MS, options);
+}
+
+// ponytail: per-process circuit breaker; a provider that fails this many calls in a row
+// is skipped for the rest of the run so one dead tier can't eat the job timeout.
+const CIRCUIT_BREAK_AFTER = parsePositiveInt(process.env.SIDEQUEST_AI_CIRCUIT_BREAK_AFTER, 3);
+const consecutiveFailures = new Map<string, number>();
+
+export function hasAIProvider(): boolean {
+    return Boolean(config.ai.proxyKey || config.ai.geminiKey || config.ai.nvidiaNimKey);
 }
 
 export async function generateTextWithFallback(options: AITextOptions): Promise<string> {
+    const tiers: Array<[string, boolean, () => Promise<string>]> = [
+        ['LLM Proxy', Boolean(config.ai.proxyKey && config.ai.proxyModels.length), () => generateWithProxy(options)],
+        ['Gemini', Boolean(config.ai.geminiKey), () => generateWithGemini(options)],
+        ['NVIDIA NIM', Boolean(config.ai.nvidiaNimKey), () => generateWithNvidiaNim(options)],
+    ];
     const errors: string[] = [];
 
-    if (config.ai.geminiKey) {
-        try {
-            return await runProviderWithRetries('Gemini', options.taskLabel, () =>
-                generateWithGemini(options)
-            );
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            errors.push(`Gemini: ${message}`);
+    for (const [name, enabled, run] of tiers) {
+        if (!enabled) continue;
+        const failures = consecutiveFailures.get(name) || 0;
+        if (failures >= CIRCUIT_BREAK_AFTER) {
+            errors.push(`${name}: circuit open after ${failures} consecutive failures`);
+            continue;
         }
-    }
-
-    if (config.ai.nvidiaNimKey) {
         try {
-            return await runProviderWithRetries('NVIDIA NIM', options.taskLabel, () =>
-                generateWithNvidiaNim(options)
-            );
+            const text = await runProviderWithRetries(name, options.taskLabel, run);
+            consecutiveFailures.set(name, 0);
+            return text;
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            errors.push(`NVIDIA NIM: ${message}`);
+            consecutiveFailures.set(name, failures + 1);
+            if (failures + 1 === CIRCUIT_BREAK_AFTER) {
+                console.warn(`🔌 ${name} disabled for rest of run after ${CIRCUIT_BREAK_AFTER} consecutive failures`);
+            }
+            errors.push(`${name}: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 

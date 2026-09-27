@@ -18,9 +18,9 @@ const professions = configModule.professions;
 
 // Import other modules
 import { createHash } from 'crypto';
-import { categorizePost, generateSummary } from './ai/categorizer.js';
-import { filterByHiringIntent } from './ai/intent-detector.js';
-import { analyzeJob } from './ai/analyzer.js';
+import { keywordIntentCheck } from './ai/intent-detector.js';
+import { scoreJob } from './ai/scorer.js';
+import type { JobScore } from './ai/scorer.js';
 import {
     initDb,
     jobExists,
@@ -76,34 +76,39 @@ function getSourceId(post: RedditPost): string {
 }
 
 // Fetch posts from the configured Reddit data source
-async function fetchSubreddit(subreddit: string): Promise<RawPost[]> {
-    const url = `https://arctic-shift.photon-reddit.com/api/posts/search?subreddit=${subreddit}&limit=25`;
+// Returns null when the source failed (after retries) so the caller can detect outages.
+async function fetchSubreddit(subreddit: string): Promise<RawPost[] | null> {
+    const url = `https://arctic-shift.photon-reddit.com/api/posts/search?subreddit=${subreddit}&limit=100`;
+    const attempts = 3;
 
-    let response: Response;
-    try {
-        response = await fetch(url, {
-            headers: {
-                'User-Agent': `SidequestBot-${CONFIG_NUM}/1.3 (https://sidequest.dev)`,
-                'Accept': 'application/json',
-            },
-            signal: AbortSignal.timeout(12000),
-        });
-    } catch (error) {
-        console.error(`[Bot-${CONFIG_NUM}] ❌ r/${subreddit}: network error – ${(error as Error).message}`);
-        return [];
+    let response: Response | null = null;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+        try {
+            response = await fetch(url, {
+                headers: {
+                    'User-Agent': `SidequestBot-${CONFIG_NUM}/1.3 (https://sidequest.dev)`,
+                    'Accept': 'application/json',
+                },
+                signal: AbortSignal.timeout(15000),
+            });
+            if (response.ok) break;
+            const retryable = response.status === 429 || response.status >= 500;
+            console.error(`[Bot-${CONFIG_NUM}] ❌ r/${subreddit}: HTTP ${response.status} (attempt ${attempt}/${attempts})`);
+            if (!retryable) return null;
+        } catch (error) {
+            response = null;
+            console.error(`[Bot-${CONFIG_NUM}] ❌ r/${subreddit}: network error – ${(error as Error).message} (attempt ${attempt}/${attempts})`);
+        }
+        if (attempt < attempts) await new Promise((r) => setTimeout(r, attempt * 3000));
     }
-
-    if (!response.ok) {
-        console.error(`[Bot-${CONFIG_NUM}] ❌ r/${subreddit}: HTTP ${response.status} ${response.statusText}`);
-        return [];
-    }
+    if (!response?.ok) return null;
 
     let listing: RedditListing;
     try {
         listing = await response.json() as RedditListing;
     } catch (error) {
         console.error(`[Bot-${CONFIG_NUM}] ❌ r/${subreddit}: failed to parse JSON – ${(error as Error).message}`);
-        return [];
+        return null;
     }
 
     const posts = listing?.data;
@@ -132,117 +137,85 @@ async function fetchSubreddit(subreddit: string): Promise<RawPost[]> {
     }));
 }
 
-interface EnrichedPost extends RawPost {
-    professions: Profession[];
-    confidence: number;
-    summary: string;
-    analysis?: {
-        project_type: string | null;
-        tech_stack: string[] | null;
-        scope: string | null;
-        timeline_signal: string | null;
-        budget_signal: string | null;
-        red_flags: string[];
-        green_flags: string[];
-    };
+interface ScoredPost extends RawPost {
+    scored: JobScore;
 }
 
-const AI_STEP_DELAY_MS = 250;
+// Drop AI-scored posts below this (same default as the twitter/discord scrapers).
+const MIN_SCORE = Number.parseInt(process.env.SIDEQUEST_MIN_SCORE || '4', 10) || 4;
+// Fail the run (-> Discord alert) when this share of subreddits could not be fetched.
+const MAX_SOURCE_FAILURE_RATIO = 0.8;
 
-function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function enrichPost(post: RawPost): Promise<EnrichedPost | null> {
-    const categorization = await categorizePost(post.title, post.content);
-    await sleep(AI_STEP_DELAY_MS);
-
-    const summary = await generateSummary(post.title, post.content);
-    await sleep(AI_STEP_DELAY_MS);
-
-    const analysis = await analyzeJob(post.title, post.content);
-
-    if (categorization.professions.length === 0) {
-        return null;
-    }
-
-    return {
-        ...post,
-        professions: categorization.professions,
-        confidence: categorization.confidence,
-        summary,
-        analysis,
-    };
-}
-
-async function fetchRedditPosts(): Promise<EnrichedPost[]> {
+async function fetchRedditPosts(): Promise<{ fetched: number; posts: ScoredPost[] }> {
     const subreddits = getAllSubreddits();
     console.log(`[Bot-${CONFIG_NUM}] 📡 Fetching from ${subreddits.length} subreddits via Arctic Shift...`);
 
     const allPosts: RawPost[] = [];
+    let failedSubs = 0;
     for (const subreddit of subreddits) {
         const posts = await fetchSubreddit(subreddit);
-        console.log(`[Bot-${CONFIG_NUM}]    r/${subreddit}: ${posts.length} posts`);
-        allPosts.push(...posts);
-        await new Promise((resolve) => setTimeout(resolve, 600)); // 600ms delay between requests
+        if (posts === null) failedSubs++;
+        console.log(`[Bot-${CONFIG_NUM}]    r/${subreddit}: ${posts === null ? 'FAILED' : `${posts.length} posts`}`);
+        allPosts.push(...(posts || []));
+        await new Promise((resolve) => setTimeout(resolve, 600));
     }
+    if (subreddits.length > 0 && failedSubs / subreddits.length >= MAX_SOURCE_FAILURE_RATIO) {
+        throw new Error(`Reddit source outage: ${failedSubs}/${subreddits.length} subreddits failed (Arctic Shift)`);
+    }
+    console.log(`[Bot-${CONFIG_NUM}] 📥 Fetched ${allPosts.length} total posts (${failedSubs} subreddits failed)`);
 
-    console.log(`[Bot-${CONFIG_NUM}] 📥 Fetched ${allPosts.length} total posts`);
-
-    const postsWithContent = allPosts.filter(post =>
-        post.title?.trim() && !isBoilerplateContent(post.content)
+    const freshPosts = allPosts.filter((post) =>
+        post.title?.trim() &&
+        !isBoilerplateContent(post.content) &&
+        post.postedAt &&
+        isPostFresh(new Date(post.postedAt).getTime() / 1000)
     );
-    console.log(`[Bot-${CONFIG_NUM}] ✂️ Filtered: ${allPosts.length - postsWithContent.length} empty/boilerplate`);
+    // Same post is often cross-posted to several subs in one run.
+    const unique = [...new Map(freshPosts.map((p) => [p.sourceId, p])).values()];
+    const validPosts = unique.filter((post) => !shouldFilterPost(post.title, post.content || ''));
+    console.log(`[Bot-${CONFIG_NUM}] 🚫 ${unique.length} fresh unique, ${validPosts.length} after negative filters`);
 
-    const freshPosts = postsWithContent.filter(post => {
-        if (!post.postedAt) return false;
-        const postTime = new Date(post.postedAt).getTime() / 1000;
-        return isPostFresh(postTime);
+    // Cheap keyword pre-filter: drop only confident non-jobs before spending AI calls.
+    const candidates = validPosts.filter((post) => {
+        const k = keywordIntentCheck(post.title, post.content);
+        return k.isJob || k.confidence < 0.85;
     });
-    console.log(`[Bot-${CONFIG_NUM}] ⏰ Fresh posts: ${freshPosts.length}`);
 
-    const validPosts = freshPosts.filter(post => !shouldFilterPost(post.title, post.content || ''));
-    console.log(`[Bot-${CONFIG_NUM}] 🚫 After negative filters: ${validPosts.length}`);
-
-    console.log(`[Bot-${CONFIG_NUM}] 💼 Detecting hiring intent...`);
-    const jobPosts = await filterByHiringIntent(validPosts);
-    console.log(`[Bot-${CONFIG_NUM}] 💼 ${jobPosts.length} show hiring intent`);
-
-    console.log(`[Bot-${CONFIG_NUM}] 🏷️ Categorizing ${jobPosts.length} posts...`);
-    const enrichedPosts: EnrichedPost[] = [];
-
-    for (const post of jobPosts) {
-        try {
-            const enrichedPost = await enrichPost(post);
-
-            if (enrichedPost) {
-                enrichedPosts.push(enrichedPost);
-            }
-        } catch (error) {
-            console.error(`[Bot-${CONFIG_NUM}] Failed to categorize: ${post.title.slice(0, 50)}...`, error);
-        }
-        await new Promise((resolve) => setTimeout(resolve, 500));
+    // Dedupe BEFORE AI: runs every 4h over a 24h window, so most posts were already stored.
+    const newPosts: RawPost[] = [];
+    for (const post of candidates) {
+        if (!(await jobExists(post.source, post.sourceId))) newPosts.push(post);
     }
+    console.log(`[Bot-${CONFIG_NUM}] 💼 ${candidates.length} candidates, ${newPosts.length} not yet stored → scoring`);
 
-    console.log(`[Bot-${CONFIG_NUM}] ✅ ${enrichedPosts.length} posts categorized`);
-    return enrichedPosts;
+    const scoredPosts: ScoredPost[] = [];
+    for (const post of newPosts) {
+        const scored = await scoreJob(post);
+        const tag = `${scored.method} ${scored.score}/10 [${scored.professions.join(',')}]`;
+        if (!scored.isJob || scored.professions.length === 0) {
+            console.log(`[Bot-${CONFIG_NUM}]   ❌ ${tag} not a job: ${post.title.slice(0, 50)} (${scored.reason})`);
+        } else if (scored.method === 'ai' && scored.score < MIN_SCORE) {
+            console.log(`[Bot-${CONFIG_NUM}]   ⬇️ ${tag} below min: ${post.title.slice(0, 50)} (${scored.reason})`);
+        } else {
+            console.log(`[Bot-${CONFIG_NUM}]   ✅ ${tag} ${post.title.slice(0, 50)}`);
+            scoredPosts.push({ ...post, scored });
+        }
+    }
+    return { fetched: allPosts.length, posts: scoredPosts };
 }
 
 async function processJobs(): Promise<{ fetched: number; newJobs: number }> {
     console.log(`[Bot-${CONFIG_NUM}] 🚀 Starting job processing...`);
-    const posts = await fetchRedditPosts();
+    const { fetched, posts } = await fetchRedditPosts();
+
     let newJobsCount = 0;
-
     for (const post of posts) {
-        const exists = await jobExists(post.source, post.sourceId);
-        if (exists) continue;
-
-        console.log(`[Bot-${CONFIG_NUM}] 📝 New job: ${post.title.slice(0, 60)}...`);
-        await insertJob(post, post.professions, null, post.summary, post.analysis);
+        const { scored } = post;
+        await insertJob(post, scored.professions, scored.score, scored.summary, scored.analysis, scored.matchScore);
         newJobsCount++;
     }
 
-    return { fetched: posts.length, newJobs: newJobsCount };
+    return { fetched, newJobs: newJobsCount };
 }
 
 // Main

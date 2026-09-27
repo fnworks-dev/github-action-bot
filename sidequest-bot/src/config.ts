@@ -11,6 +11,13 @@ export const config = {
 
     // AI (Gemini primary with cascade fallbacks, NVIDIA NIM fallback)
     ai: {
+        // Primary tier: fnworks llm-proxy (OpenAI-compatible) serving Ollama models.
+        proxyKey: process.env.LLM_PROXY_API_KEY || '',
+        proxyUrl: `${(process.env.LLM_PROXY_BASE_URL || 'https://api.fnworks.dev/v1').trim().replace(/\/+$/, '')}/chat/completions`,
+        proxyModels: (process.env.LLM_PROXY_MODELS || 'ollama/gpt-oss:120b,ollama/gemma4:31b')
+            .split(',')
+            .map((m) => m.trim())
+            .filter(Boolean),
         geminiKey: process.env.GEMINI_API_KEY || '',
         geminiBackupKeys: [
             process.env.GEMINI_BACKUP_KEY_1 || '',
@@ -116,6 +123,8 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'illustrator', 'concept artist', 'graphic designer',
             'ui designer', 'ux designer', 'product designer',
             'logo designer', 'brand designer',
+            // Broad terms so the keyword fallback (AI outage) still tags commission posts
+            'artist', 'artwork', 'illustration', 'character art', 'commission', 'logo', 'animator',
 
             // Art styles
             'digital artist', 'traditional artist',

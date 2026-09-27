@@ -41,7 +41,7 @@ interface AIResponse {
 // KEYWORD-BASED INTENT DETECTION (Fast pre-filter)
 // ============================================================================
 
-function keywordIntentCheck(title: string, content: string | null): IntentDetectionResult {
+export function keywordIntentCheck(title: string, content: string | null): IntentDetectionResult {
     const text = `${title} ${content || ''}`.toLowerCase();
 
     const positiveSignals = [
@@ -238,6 +238,12 @@ function keywordIntentCheck(title: string, content: string | null): IntentDetect
             }
         }
         return false;
+    }
+
+    // Explicit [Hiring] title tag (r/HungryArtists, r/DesignJobs, r/forhire...) outranks body substrings
+    // like "i made" / "experience with" that otherwise reject real gigs. Below 0.85 so AI still verifies.
+    if (/^\s*[\[(]\s*hiring\s*[\])]/i.test(title)) {
+        return { isJob: true, confidence: 0.8, reason: 'Explicit [Hiring] title tag', method: 'keyword' };
     }
 
     for (const signal of negativeSignals) {

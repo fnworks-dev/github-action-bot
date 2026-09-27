@@ -138,6 +138,13 @@ export async function initDb(): Promise<void> {
                 'write'
             );
 
+            // match_score predates this bot's schema (added by the twitter/discord scrapers); add if missing.
+            try {
+                await db.execute('ALTER TABLE job_posts ADD COLUMN match_score INTEGER');
+            } catch (error) {
+                if (!/duplicate column/i.test(String(error))) throw error;
+            }
+
             console.log('✅ Database initialized');
         },
         {
@@ -335,7 +342,8 @@ export async function insertJob(
         budget_signal: string | null;
         red_flags: string[];
         green_flags: string[];
-    }
+    },
+    matchScore: number | null = null
 ): Promise<string> {
     return retryWithBackoff(
         async () => {
@@ -347,8 +355,8 @@ export async function insertJob(
                     INSERT INTO job_posts (
                         id, source, source_id, source_url, title, content, author, subreddit,
                         professions, score, summary, posted_at,
-                        project_type, tech_stack, scope, timeline_signal, budget_signal, red_flags, green_flags
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        project_type, tech_stack, scope, timeline_signal, budget_signal, red_flags, green_flags, match_score
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `,
                 args: [
                     id,
@@ -371,6 +379,7 @@ export async function insertJob(
                     analysis?.budget_signal || null,
                     analysis?.red_flags?.length ? JSON.stringify(analysis.red_flags) : null,
                     analysis?.green_flags?.length ? JSON.stringify(analysis.green_flags) : null,
+                    matchScore,
                 ],
             });
 

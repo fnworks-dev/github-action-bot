@@ -67,7 +67,7 @@ Return ONLY the JSON, no explanation.`;
     };
 }
 
-function categorizeWithKeywords(title: string, content: string | null): CategorizationResult {
+export function categorizeWithKeywords(title: string, content: string | null): CategorizationResult {
     const text = `${title} ${content || ''}`.toLowerCase();
     const matchedProfessions: Profession[] = [];
     const professionKeys = Object.keys(professions) as Profession[];
@@ -107,7 +107,7 @@ export async function categorizePost(title: string, content: string | null): Pro
     return categorizeWithKeywords(title, content);
 }
 
-function heuristicSummary(title: string, content: string | null): string | null {
+export function heuristicSummary(title: string, content: string | null): string | null {
     if (!content || !content.trim()) return null;
 
     const paragraphs = content

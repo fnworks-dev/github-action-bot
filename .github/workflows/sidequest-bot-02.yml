@@ -41,6 +41,8 @@ jobs:
         env:
           TURSO_DATABASE_URL: ${{ secrets.SIDEQUEST_TURSO_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.SIDEQUEST_TURSO_TOKEN }}
+          LLM_PROXY_API_KEY: ${{ secrets.LLM_PROXY_API_KEY }}
+          LLM_PROXY_MODELS: ollama/gpt-oss:120b,ollama/gemma4:31b
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_BACKUP_KEY_1: ${{ secrets.GEMINI_BACKUP_KEY_1 }}
           GEMINI_BACKUP_KEY_2: ${{ secrets.GEMINI_BACKUP_KEY_2 }}

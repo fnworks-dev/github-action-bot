@@ -38,6 +38,9 @@ const NSFW_TERMS = [
 const JUNK_PATTERNS: RegExp[] = [
     // Title-only "[For Hire]"/"[Hiring]" with no other words (low effort, nothing to classify)
     /^\s*\[(for hire|hiring|paid|unpaid)\]\s*$/i,
+    // Seller/unpaid title tags used on r/HungryArtists, r/artcommissions, r/drawforhire, r/forhire:
+    // the poster is offering services (or not paying), never a gig.
+    /^\s*[\[(]\s*(fh|for[\s-]?hire|offer(ing)?|unpaid|hobby|rev[\s-]?share|commissions? open|open commissions?)\s*[\])]/i,
     // Discord/community invite spam
     /discord\.gg\/\S+/i,
     // Link-shortener spam
