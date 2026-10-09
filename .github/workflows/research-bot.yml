@@ -17,9 +17,10 @@ jobs:
   run-bot:
     if: github.repository == 'fnworks-dev/github-action-bot'
     runs-on: ubuntu-latest
-    # A full run takes ~50 min: analysis ~8, clustering ~28 (sequential Turso calls per cluster), synthesis ~10, daily summary.
-    # ponytail: clustering grows ~1.5 min/month with history; batch the writes in research-bot/src/db/clusters.ts if runs near 90.
-    timeout-minutes: 90
+    # A full run takes ~75 min: analysis ~35 (8 posts x 33 subreddits + 50 HN, batches of 5), clustering ~28 (sequential
+    # Turso calls per cluster), synthesis ~10, daily summary.
+    # ponytail: clustering grows with history; batch the writes in research-bot/src/db/clusters.ts if runs near 120.
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
