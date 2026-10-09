@@ -152,14 +152,21 @@ async function fetchRedditPosts(): Promise<{ fetched: number; posts: ScoredPost[
     console.log(`[Bot-${CONFIG_NUM}] 📡 Fetching from ${subreddits.length} subreddits via Arctic Shift...`);
 
     const allPosts: RawPost[] = [];
-    let failedSubs = 0;
-    for (const subreddit of subreddits) {
-        const posts = await fetchSubreddit(subreddit);
-        if (posts === null) failedSubs++;
-        console.log(`[Bot-${CONFIG_NUM}]    r/${subreddit}: ${posts === null ? 'FAILED' : `${posts.length} posts`}`);
-        allPosts.push(...(posts || []));
-        await new Promise((resolve) => setTimeout(resolve, 600));
+    let pending = subreddits;
+    // Second pass: a subreddit can keep answering 422 through all 3 attempts (~10 s); a bit later it usually works.
+    for (let pass = 1; pass <= 2 && pending.length > 0; pass++) {
+        if (pass === 2) await new Promise((resolve) => setTimeout(resolve, 15000));
+        const failed: string[] = [];
+        for (const subreddit of pending) {
+            const posts = await fetchSubreddit(subreddit);
+            if (posts === null) failed.push(subreddit);
+            console.log(`[Bot-${CONFIG_NUM}]    r/${subreddit}${pass === 2 ? ' (second pass)' : ''}: ${posts === null ? 'FAILED' : `${posts.length} posts`}`);
+            allPosts.push(...(posts || []));
+            await new Promise((resolve) => setTimeout(resolve, 600));
+        }
+        pending = failed;
     }
+    const failedSubs = pending.length;
     if (subreddits.length > 0 && failedSubs / subreddits.length >= MAX_SOURCE_FAILURE_RATIO) {
         throw new Error(`Reddit source outage: ${failedSubs}/${subreddits.length} subreddits failed (Arctic Shift)`);
     }
