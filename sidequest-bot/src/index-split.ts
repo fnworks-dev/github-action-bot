@@ -92,7 +92,8 @@ async function fetchSubreddit(subreddit: string): Promise<RawPost[] | null> {
                 signal: AbortSignal.timeout(15000),
             });
             if (response.ok) break;
-            const retryable = response.status === 429 || response.status >= 500;
+            // 422 = Arctic Shift "Timeout. Maybe slow down a bit" (load shedding; cost r/forhire every other run). Retry passes.
+            const retryable = response.status === 422 || response.status === 429 || response.status >= 500;
             console.error(`[Bot-${CONFIG_NUM}] ❌ r/${subreddit}: HTTP ${response.status} (attempt ${attempt}/${attempts})`);
             if (!retryable) return null;
         } catch (error) {
