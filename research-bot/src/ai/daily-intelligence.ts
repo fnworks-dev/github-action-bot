@@ -154,7 +154,7 @@ Score: ${p.developmentScore || "N/A"}
           },
           body: JSON.stringify({
             model: "claude-sonnet-4-20250514",
-            max_tokens: 800,
+            max_tokens: 4000, // GLM reasons first; small caps cut the JSON off (same cap as analyzer.ts)
             messages: [
               {
                 role: "user",
@@ -239,7 +239,7 @@ Dev Score: ${p.developmentScore || "N/A"}
           },
           body: JSON.stringify({
             model: "claude-sonnet-4-20250514",
-            max_tokens: 1200,
+            max_tokens: 4000, // GLM reasons first; small caps cut the JSON off (same cap as analyzer.ts)
             messages: [
               {
                 role: "user",
@@ -313,7 +313,7 @@ Synthesis: ${c.aiSynthesis || "N/A"}
           },
           body: JSON.stringify({
             model: "claude-sonnet-4-20250514",
-            max_tokens: 500,
+            max_tokens: 4000, // GLM reasons first; small caps cut the JSON off (same cap as analyzer.ts)
             messages: [
               {
                 role: "user",
