@@ -141,8 +141,7 @@ export function shouldFilterPost(title: string, content: string): boolean {
 
 // Check if this is the daily summary run (00:00 WIB = 17:00 UTC)
 export function isDailySummaryTime(): boolean {
-    const now = new Date();
-    const hour = now.getUTCHours();
-    // 00:00 WIB = 17:00 UTC (UTC+7)
-    return hour === 17;
+    // The workflow runs once a day. GitHub starts its 17:00 UTC cron 1-5 h late, so the old
+    // `hour === 17` check almost never matched (last summary sent 2026-08-23). Local runs skip it.
+    return ['schedule', 'workflow_dispatch'].includes(process.env.GITHUB_EVENT_NAME ?? '');
 }

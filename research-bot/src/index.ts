@@ -202,12 +202,10 @@ async function main() {
       }
     }
 
-    // Check if it's weekly summary time (Monday 00:00 WIB = 17:00 UTC)
-    const now = new Date();
-    const isMonday = now.getUTCDay() === 1; // Monday is 1
-    const hour = now.getUTCHours();
+    // Weekly summary: the Monday (UTC) daily run
+    const isMonday = new Date().getUTCDay() === 1;
 
-    if (isMonday && hour === 17) {
+    if (isMonday && isDailySummaryTime()) {
       console.log("");
       console.log("📅 Generating weekly summary...");
 
