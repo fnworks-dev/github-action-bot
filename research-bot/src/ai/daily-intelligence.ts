@@ -239,7 +239,7 @@ Dev Score: ${p.developmentScore || "N/A"}
           },
           body: JSON.stringify({
             model: "claude-sonnet-4-20250514",
-            max_tokens: 4000, // GLM reasons first; small caps cut the JSON off (same cap as analyzer.ts)
+            max_tokens: 8000, // 30 candidates -> long JSON; 4000 still came back without an array (2026-10-09)
             messages: [
               {
                 role: "user",
@@ -259,13 +259,14 @@ Dev Score: ${p.developmentScore || "N/A"}
       const textBlock = data.content?.find(
         (block: any) => block.type === "text",
       );
+      if (!textBlock?.text) console.error(`Quick wins: no text block (stop_reason ${data.stop_reason})`);
       return textBlock?.text || "";
     }, "Quick Wins Generation");
 
     // Extract JSON array from response
     const jsonMatch = content.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
-      console.error("No JSON array found in quick wins response");
+      console.error(`No JSON array found in quick wins response (${content.length} chars): ${content.slice(0, 160)}`);
       return [];
     }
 
