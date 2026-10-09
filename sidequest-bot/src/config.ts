@@ -9,12 +9,13 @@ export const config = {
         authToken: process.env.TURSO_AUTH_TOKEN || '',
     },
 
-    // AI (Gemini primary with cascade fallbacks, NVIDIA NIM fallback)
+    // AI: Gemini primary (key x model cascade) -> Ollama via fnworks llm-proxy -> NVIDIA NIM.
     ai: {
-        // Primary tier: fnworks llm-proxy (OpenAI-compatible) serving Ollama models.
+        // Fallback tier: fnworks llm-proxy (OpenAI-compatible) serving Ollama models.
+        // gemma4:31b first: closest to Gemini in the 2026-10-09 benchmark; gpt-oss:120b behind it.
         proxyKey: process.env.LLM_PROXY_API_KEY || '',
         proxyUrl: `${(process.env.LLM_PROXY_BASE_URL || 'https://api.fnworks.dev/v1').trim().replace(/\/+$/, '')}/chat/completions`,
-        proxyModels: (process.env.LLM_PROXY_MODELS || 'ollama/gpt-oss:120b,ollama/gemma4:31b')
+        proxyModels: (process.env.LLM_PROXY_MODELS || 'ollama/gemma4:31b,ollama/gpt-oss:120b')
             .split(',')
             .map((m) => m.trim())
             .filter(Boolean),
@@ -23,11 +24,12 @@ export const config = {
             process.env.GEMINI_BACKUP_KEY_1 || '',
             process.env.GEMINI_BACKUP_KEY_2 || '',
         ].filter((k) => k !== ''),
+        // Fastest + always answered first; 3-flash-preview after 2.5-flash because it often 503s (overloaded).
+        // gemma-4-31b-it removed: 39s/500 on the Gemini API, and the Ollama tier already serves gemma4.
         geminiModels: [
-            'gemma-4-31b-it',
             'gemini-3.1-flash-lite-preview',
-            'gemini-3-flash-preview',
             'gemini-2.5-flash',
+            'gemini-3-flash-preview',
             'gemini-2.5-flash-lite',
         ],
         geminiBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/models',

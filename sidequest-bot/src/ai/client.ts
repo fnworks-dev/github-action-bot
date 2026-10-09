@@ -24,7 +24,7 @@ interface NvidiaNimResponse {
 }
 
 const DEFAULT_TIMEOUT_MS = parsePositiveInt(process.env.SIDEQUEST_AI_TIMEOUT_MS, 15_000);
-// gpt-oss normally answers in 2-6s; stalls happen, so fail fast to the next model/tier.
+// Ollama models normally answer in 2-6s; stalls happen, so fail fast to the next model/tier.
 const PROXY_TIMEOUT_MS = parsePositiveInt(process.env.LLM_PROXY_TIMEOUT_MS, 20_000);
 const DEFAULT_MAX_ATTEMPTS = parsePositiveInt(process.env.SIDEQUEST_AI_MAX_ATTEMPTS, 2);
 const DEFAULT_RETRY_BASE_DELAY_MS = parsePositiveInt(process.env.SIDEQUEST_AI_RETRY_BASE_DELAY_MS, 1_500);
@@ -143,7 +143,7 @@ async function runProviderWithRetries(
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         try {
-            console.log(`🤖 Using ${provider} for ${taskLabel} (attempt ${attempt}/${DEFAULT_MAX_ATTEMPTS})`);
+            console.log(`🤖 Using ${provider} for ${taskLabel} (attempt ${attempt}/${maxAttempts})`);
             return await fn();
         } catch (error) {
             const providerError = toProviderError(provider, error);
@@ -341,10 +341,11 @@ export function hasAIProvider(): boolean {
 }
 
 export async function generateTextWithFallback(options: AITextOptions): Promise<string> {
-    // [name, enabled, run, attempts]. Proxy gets 1 attempt: its model list is already the retry.
+    // [name, enabled, run, attempts]. Gemini primary, Ollama (LLM proxy) fallback. Gemini and the
+    // proxy get 1 attempt each: their key x model / model lists are already the retry.
     const tiers: Array<[string, boolean, () => Promise<string>, number]> = [
+        ['Gemini', Boolean(config.ai.geminiKey), () => generateWithGemini(options), 1],
         ['LLM Proxy', Boolean(config.ai.proxyKey && config.ai.proxyModels.length), () => generateWithProxy(options), 1],
-        ['Gemini', Boolean(config.ai.geminiKey), () => generateWithGemini(options), DEFAULT_MAX_ATTEMPTS],
         ['NVIDIA NIM', Boolean(config.ai.nvidiaNimKey), () => generateWithNvidiaNim(options), DEFAULT_MAX_ATTEMPTS],
     ];
     const errors: string[] = [];
