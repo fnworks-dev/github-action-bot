@@ -1,4 +1,5 @@
 import { callWithRetry } from "./analyzer.js";
+import { config } from "../config.js";
 import type {
   Problem,
   ProblemCluster,
@@ -148,7 +149,7 @@ Score: ${p.developmentScore || "N/A"}
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "x-api-key": process.env.ANTHROPIC_API_KEY || "",
+            "x-api-key": config.ai.glmKey, // same Z.ai key as analyzer.ts; ANTHROPIC_API_KEY was never set
             "anthropic-version": "2023-06-01",
           },
           body: JSON.stringify({
@@ -233,7 +234,7 @@ Dev Score: ${p.developmentScore || "N/A"}
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "x-api-key": process.env.ANTHROPIC_API_KEY || "",
+            "x-api-key": config.ai.glmKey, // same Z.ai key as analyzer.ts; ANTHROPIC_API_KEY was never set
             "anthropic-version": "2023-06-01",
           },
           body: JSON.stringify({
@@ -307,7 +308,7 @@ Synthesis: ${c.aiSynthesis || "N/A"}
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "x-api-key": process.env.ANTHROPIC_API_KEY || "",
+            "x-api-key": config.ai.glmKey, // same Z.ai key as analyzer.ts; ANTHROPIC_API_KEY was never set
             "anthropic-version": "2023-06-01",
           },
           body: JSON.stringify({
