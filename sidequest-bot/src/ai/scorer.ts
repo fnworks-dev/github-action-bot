@@ -52,7 +52,7 @@ Decide:
    7-8: paid with clear work, a detail or two missing.
    5-6: paid but vague, or pay "negotiable"/"DM for budget".
    3-4: lowball pay (e.g. $5-20 for a full illustration or logo), spec work/contests, "exposure", revenue share, equity only, heavy red flags.
-   1-2: not a real job, unpaid, scam, spam, adult/NSFW.
+   1-2: not a real job, unpaid, scam, spam, adult/NSFW, or written in / mixing in sentences or phrases of another language (Indonesian, Spanish, Tagalog, ...). We only list English posts; a lone greeting ("Hola!") or foreign names are fine.
    Art-specific: reward reference images, usage rights, size/count of pieces, realistic budget. Penalise "art trade", "portfolio piece", "free test piece", "AI art fix for cheap".
 3. match_score 0-100: overall rank value (roughly score*10, adjust within the band for detail quality).
 
