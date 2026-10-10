@@ -49,10 +49,13 @@ This public repository is used to run GitHub Actions with unlimited free minutes
 
 - **Schedule**: every 4 hours each, staggered — 01 at :00 (0,4,8…UTC), 02 at :30, 03/04 same pattern offset +2h; effective coverage every 2 hours
 - **Purpose**: scrape Reddit hiring subreddits via Arctic Shift API, detect job intent, categorize profession, analyze, summarize, write to SideQuest `job_posts` (Turso/LibSQL)
+- **Role since 2026-10-10: backup.** Reddit blocks GitHub runners (429) and Arctic Shift can go down (522 since 2026-10-09), so production Reddit jobs are fetched on the owner's laptop: cron runs `sidequestboard-job-fetcher/scripts/domain/run_reddit_scraper.sh`, which calls `sidequest-bot/scripts/reddit_local_fetch.py` (logged-in Chromium on an invisible Xvfb screen, then RSS, then Arctic Shift) and runs the same 4 configs with `REDDIT_PREFETCH_FILE`. Local secrets live in `sidequest-bot/.env` (gitignored). Tests: `cd sidequest-bot/scripts && python3 -m unittest`.
+- **Outage behavior on GitHub**: stops after the first 4 subreddits fail, no second pass when most failed, and a mirror outage exits green (no failure email). `insertJob` skips posts already stored, so laptop and GitHub can overlap safely.
 - **Configs**: `sidequest-bot/src/configs/config-01.ts` (Dev+Artist) … `config-04.ts` (VA+Startups); selected via `CONFIG` env
 - **Timeout**: 30 min per run (`timeout-minutes: 30`; raised for thinking-model latency)
 - **Concurrency**: per-workflow group with `cancel-in-progress: true`
-- **Legacy**: `.github/workflows/sidequest-bot.yml` is workflow_dispatch-only (dormant since 2026-02); split workflows are production
+- **Legacy**: `.github/workflows/sidequest-bot.yml` is workflow_dispatch-only (dormant since 2026-02)
+- **Dead-man switch** (`sidequest-deadman.yml`, hourly): alerts Discord when a split workflow has no success in 20 h, or when no new Reddit job reached the board for 8 h (then every 4 h)
 
 ### SideQuest Backfill Summaries
 
