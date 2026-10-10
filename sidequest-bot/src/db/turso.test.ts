@@ -14,6 +14,15 @@ test('a dropped connection is retried', async () => {
     assert.equal(calls, 2);
 });
 
+test('native fetch failures (code on error.cause) are retried too', async () => {
+    let calls = 0;
+    const result = await retryWithBackoff(async () => {
+        if (++calls === 1) throw new TypeError('fetch failed', { cause: Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }) });
+        return 'ok';
+    }, opts);
+    assert.equal(result, 'ok');
+});
+
 test('a real query error is not retried', async () => {
     let calls = 0;
     await assert.rejects(retryWithBackoff(async () => {

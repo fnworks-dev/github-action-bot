@@ -80,6 +80,7 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'forhire',
             'gameDevClassifieds',
             'softwaretesting',
+            'playtesters', // added 2026-10-11
             'gamedev',
         ],
     },

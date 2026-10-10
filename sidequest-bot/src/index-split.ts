@@ -22,11 +22,13 @@ import { readFileSync } from 'fs';
 import { keywordIntentCheck } from './ai/intent-detector.js';
 import { scoreJob } from './ai/scorer.js';
 import { loadRejected, saveRejected } from './rejected-cache.js';
+import { duplicateKeys } from './dedupe.js';
 import type { JobScore } from './ai/scorer.js';
 import {
     initDb,
     jobExists,
     insertJob,
+    recentJobKeys,
     getStats,
     deleteOldPosts,
     getLatestJobCreatedAt,
@@ -233,13 +235,17 @@ async function fetchRedditPosts(): Promise<{ fetched: number; posts: ScoredPost[
     // Dedupe BEFORE AI: every run looks at the last 24 h, so most posts were already stored or (locally) rejected.
     const rejectedFile = process.env.REDDIT_REJECTED_FILE;
     const rejected = loadRejected(rejectedFile, MAX_POST_AGE_MS);
+    const stored = await recentJobKeys('reddit');
     const newPosts: RawPost[] = [];
     let skippedRejected = 0;
+    let skippedDuplicates = 0;
     for (const post of candidates) {
         if (rejected[post.sourceId]) skippedRejected++;
-        else if (!(await jobExists(post.source, post.sourceId))) newPosts.push(post);
+        else if (await jobExists(post.source, post.sourceId)) continue;
+        else if (duplicateKeys(post).some((k) => stored.has(k))) skippedDuplicates++;
+        else newPosts.push(post);
     }
-    console.log(`[Bot-${CONFIG_NUM}] 💼 ${candidates.length} candidates, ${skippedRejected} rejected earlier, ${newPosts.length} not yet stored → scoring`);
+    console.log(`[Bot-${CONFIG_NUM}] 💼 ${candidates.length} candidates, ${skippedRejected} rejected earlier, ${skippedDuplicates} copies of stored jobs, ${newPosts.length} new → scoring`);
 
     const scoredPosts: ScoredPost[] = [];
     for (const post of newPosts) {
@@ -264,10 +270,18 @@ async function processJobs(): Promise<{ fetched: number; newJobs: number }> {
     console.log(`[Bot-${CONFIG_NUM}] 🚀 Starting job processing...`);
     const { fetched, posts } = await fetchRedditPosts();
 
+    // Reload: the other runner may have stored a copy while we scored; adding keys as we go drops cross-posts within this run.
+    const stored = await recentJobKeys('reddit');
     let newJobsCount = 0;
     for (const post of posts) {
         const { scored } = post;
+        const keys = duplicateKeys(post);
+        if (keys.some((k) => stored.has(k))) {
+            console.log(`[Bot-${CONFIG_NUM}]   🔁 copy of a stored job, skipped: ${post.title.slice(0, 50)}`);
+            continue;
+        }
         const inserted = await insertJob(post, scored.professions, scored.score, scored.summary, scored.analysis, scored.matchScore);
+        keys.forEach((k) => stored.add(k));
         if (inserted) newJobsCount++;
         else console.log(`[Bot-${CONFIG_NUM}]   ↔️ already stored by the other runner: ${post.title.slice(0, 50)}`);
     }

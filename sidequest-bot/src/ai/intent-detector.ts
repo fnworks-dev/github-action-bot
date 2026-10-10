@@ -240,10 +240,13 @@ export function keywordIntentCheck(title: string, content: string | null): Inten
         return false;
     }
 
-    // Explicit [Hiring] title tag (r/HungryArtists, r/DesignJobs, r/forhire...) outranks body substrings
-    // like "i made" / "experience with" that otherwise reject real gigs. Below 0.85 so AI still verifies.
-    if (/^\s*[\[(]\s*hiring\s*[\])]/i.test(title)) {
-        return { isJob: true, confidence: 0.8, reason: 'Explicit [Hiring] title tag', method: 'keyword' };
+    // A title that hires ("[Hiring] ...", "HIRING: ...", "Looking for a Minecraft video editor", "Video Editor Needed")
+    // outranks body substrings like "i made" / "experience with" / "how to apply" that otherwise reject real gigs.
+    // Below 0.85 so AI still verifies.
+    const titleHires = /^\W*hiring\b/i.test(title) || roleTokens.some((role) =>
+        new RegExp(`\\b(?:(?:looking for|need|hiring|seeking)(?: \\w+){0,3} ${role}|${role}s? (?:needed|required|wanted))\\b`, 'i').test(title));
+    if (titleHires) {
+        return { isJob: true, confidence: 0.8, reason: 'Hiring title', method: 'keyword' };
     }
 
     for (const signal of negativeSignals) {

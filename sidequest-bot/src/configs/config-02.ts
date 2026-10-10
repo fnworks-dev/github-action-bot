@@ -48,6 +48,7 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'forhire',
             'VoiceActing',
             'recordthis',
+            'voicework', // added 2026-10-11, keep if it yields ≥1 job per 48 h
             'gameDevClassifieds',
             'indiegames',
             'gamedev',
@@ -68,6 +69,9 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'ContentCreators',
             'Premiere',
             'AfterEffects',
+            'FindVideoEditors', // added 2026-10-11 with the next two, keep the ones that yield jobs
+            'VideoEditor_ForHire',
+            'VideoEditingJobs',
         ],
     },
     writer: {

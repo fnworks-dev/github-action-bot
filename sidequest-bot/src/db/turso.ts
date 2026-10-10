@@ -1,5 +1,6 @@
 import { createClient, type Client, LibsqlError } from '@libsql/client';
 import { config } from '../config.js';
+import { DUPLICATE_WINDOW_DAYS, duplicateKeys } from '../dedupe.js';
 import type {
     JobPost,
     RawPost,
@@ -40,7 +41,8 @@ export async function retryWithBackoff<T>(
             // Network blips too ("socket hang up" killed a laptop run on 2026-10-10); a repeated insertJob is a no-op.
             const isRetryable =
                 (error instanceof LibsqlError && error.code === 'SERVER_ERROR') ||
-                NETWORK_ERRORS.includes((error as { code?: string }).code ?? '');
+                // node-fetch put the code on the error, native fetch (client 0.18) on error.cause
+                NETWORK_ERRORS.includes((error as { code?: string }).code ?? (error as { cause?: { code?: string } }).cause?.code ?? '');
 
             if (attempt === maxAttempts || !isRetryable) {
                 console.error(
@@ -329,6 +331,23 @@ export async function jobExists(
             operation: `jobExists(source="${source}", sourceId="${sourceId}")`,
         }
     );
+}
+
+/** Duplicate keys of the jobs stored for a source in the last DUPLICATE_WINDOW_DAYS days. */
+export async function recentJobKeys(source: string): Promise<Set<string>> {
+    const result = await retryWithBackoff(
+        () => getDb().execute({
+            // 1000 chars hold the 150 letters the keys use
+            sql: "SELECT author, title, substr(content, 1, 1000) AS content FROM job_posts WHERE source = ? AND created_at >= datetime('now', ?)",
+            args: [source, `-${DUPLICATE_WINDOW_DAYS} days`],
+        }),
+        { maxAttempts: 3, delayMs: 60000, operation: 'recentJobKeys' }
+    );
+    return new Set(result.rows.flatMap((row) => duplicateKeys({
+        author: row.author as string | null,
+        title: String(row.title ?? ''),
+        content: row.content as string | null,
+    })));
 }
 
 // Insert new job post with AI analysis

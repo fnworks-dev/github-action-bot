@@ -69,6 +69,7 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'pixelart',
             '3Dmodeling',
             'Blender',
+            'ComicBookCollabs', // added 2026-10-11
         ],
     },
     'voice-actor': {
