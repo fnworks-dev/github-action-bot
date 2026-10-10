@@ -6,7 +6,7 @@
     "main": "dist/index.js",
     "scripts": {
         "build": "tsc",
-        "test": "tsc && node --test dist/rejected-cache.test.js && cd scripts && python3 -m unittest -q test_reddit_local_fetch",
+        "test": "tsc && node --test dist/rejected-cache.test.js dist/db/turso.test.js && cd scripts && python3 -m unittest -q test_reddit_local_fetch",
         "start": "node dist/index.js",
         "start:split": "node dist/index-split.js",
         "backfill:summaries": "node dist/backfill-summaries.js",

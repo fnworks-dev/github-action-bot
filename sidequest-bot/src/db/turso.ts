@@ -22,7 +22,9 @@ interface RetryOptions {
  * Retry wrapper for database operations with exponential backoff.
  * Retries on SERVER_ERROR from Turso (transient issues).
  */
-async function retryWithBackoff<T>(
+const NETWORK_ERRORS = ['ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED', 'EPIPE', 'ENOTFOUND', 'EAI_AGAIN'];
+
+export async function retryWithBackoff<T>(
     fn: () => Promise<T>,
     options: RetryOptions
 ): Promise<T> {
@@ -35,9 +37,10 @@ async function retryWithBackoff<T>(
         } catch (error) {
             lastError = error as Error;
 
+            // Network blips too ("socket hang up" killed a laptop run on 2026-10-10); a repeated insertJob is a no-op.
             const isRetryable =
-                error instanceof LibsqlError &&
-                error.code === 'SERVER_ERROR';
+                (error instanceof LibsqlError && error.code === 'SERVER_ERROR') ||
+                NETWORK_ERRORS.includes((error as { code?: string }).code ?? '');
 
             if (attempt === maxAttempts || !isRetryable) {
                 console.error(
