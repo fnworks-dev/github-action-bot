@@ -159,7 +159,7 @@ export async function scoreJob(post: RawPost): Promise<JobScore> {
             const raw = await generateTextWithFallback({
                 prompt,
                 temperature: 0.1,
-                maxOutputTokens: 2048, // reasoning models spend budget on thinking; keep headroom
+                maxOutputTokens: 4096, // gemini-2.5-flash thinks ~2-3k tokens before answering; 2048 cut its JSON off
                 taskLabel: 'job scoring',
             });
             return parseScore(raw, post);

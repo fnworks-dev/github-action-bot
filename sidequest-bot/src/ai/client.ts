@@ -12,6 +12,7 @@ interface GeminiResponse {
         content?: {
             parts?: Array<{ text?: string; thought?: boolean }>;
         };
+        finishReason?: string;
     }>;
 }
 
@@ -209,6 +210,11 @@ async function generateWithGemini(options: AITextOptions): Promise<string> {
                 }
 
                 const data = await response.json() as GeminiResponse;
+                // A thinking model can spend the whole budget on thoughts; a cut-off answer is useless, try the next model.
+                if (data.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
+                    lastError = new ProviderError('Gemini', response.status, true, `${model} answer cut off at maxOutputTokens`);
+                    continue;
+                }
                 const text = extractGeminiText(data);
                 if (!text) {
                     lastError = new ProviderError('Gemini', response.status, true, 'Gemini API returned empty content');
