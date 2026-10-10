@@ -21,6 +21,7 @@ import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import { keywordIntentCheck } from './ai/intent-detector.js';
 import { scoreJob } from './ai/scorer.js';
+import { loadRejected, saveRejected } from './rejected-cache.js';
 import type { JobScore } from './ai/scorer.js';
 import {
     initDb,
@@ -133,7 +134,8 @@ function toRawPosts(subreddit: string, posts: RedditPost[]): RawPost[] {
         sourceId: getSourceId(post),
         sourceUrl: `https://www.reddit.com${post.permalink}`,
         title: post.title || '',
-        content: post.is_self && post.selftext && post.selftext !== '[removed]'
+        // Not just is_self: image/gallery posts carry the full job text too (10 of 18 HungryArtists gigs were lost to this).
+        content: post.selftext && post.selftext !== '[removed]' && post.selftext !== '[deleted]'
             ? post.selftext
             : null,
         author: post.author || null,
@@ -228,12 +230,16 @@ async function fetchRedditPosts(): Promise<{ fetched: number; posts: ScoredPost[
         return k.isJob || k.confidence < 0.85;
     });
 
-    // Dedupe BEFORE AI: runs every 4h over a 24h window, so most posts were already stored.
+    // Dedupe BEFORE AI: every run looks at the last 24 h, so most posts were already stored or (locally) rejected.
+    const rejectedFile = process.env.REDDIT_REJECTED_FILE;
+    const rejected = loadRejected(rejectedFile, MAX_POST_AGE_MS);
     const newPosts: RawPost[] = [];
+    let skippedRejected = 0;
     for (const post of candidates) {
-        if (!(await jobExists(post.source, post.sourceId))) newPosts.push(post);
+        if (rejected[post.sourceId]) skippedRejected++;
+        else if (!(await jobExists(post.source, post.sourceId))) newPosts.push(post);
     }
-    console.log(`[Bot-${CONFIG_NUM}] 💼 ${candidates.length} candidates, ${newPosts.length} not yet stored → scoring`);
+    console.log(`[Bot-${CONFIG_NUM}] 💼 ${candidates.length} candidates, ${skippedRejected} rejected earlier, ${newPosts.length} not yet stored → scoring`);
 
     const scoredPosts: ScoredPost[] = [];
     for (const post of newPosts) {
@@ -241,13 +247,16 @@ async function fetchRedditPosts(): Promise<{ fetched: number; posts: ScoredPost[
         const tag = `${scored.method} ${scored.score}/10 [${scored.professions.join(',')}]`;
         if (!scored.isJob || scored.professions.length === 0) {
             console.log(`[Bot-${CONFIG_NUM}]   ❌ ${tag} not a job: ${post.title.slice(0, 50)} (${scored.reason})`);
+            if (scored.method === 'ai') rejected[post.sourceId] = Date.now(); // keyword fallback = AI failed, retry next run
         } else if (scored.method === 'ai' && scored.score < MIN_SCORE) {
             console.log(`[Bot-${CONFIG_NUM}]   ⬇️ ${tag} below min: ${post.title.slice(0, 50)} (${scored.reason})`);
+            rejected[post.sourceId] = Date.now();
         } else {
             console.log(`[Bot-${CONFIG_NUM}]   ✅ ${tag} ${post.title.slice(0, 50)}`);
             scoredPosts.push({ ...post, scored });
         }
     }
+    saveRejected(rejectedFile, rejected);
     return { fetched: allPosts.length, posts: scoredPosts };
 }
 
