@@ -53,6 +53,7 @@ Decide:
    5-6: paid but vague, or pay "negotiable"/"DM for budget".
    3-4: lowball pay (e.g. $5-20 for a full illustration or logo), spec work/contests, "exposure", revenue share, equity only, heavy red flags.
    1-2: not a real job, unpaid, scam, spam, adult/NSFW, or written in / mixing in sentences or phrases of another language (Indonesian, Spanish, Tagalog, ...). We only list English posts; a lone greeting ("Hola!") or foreign names are fine.
+   Scams score 1: using, renting or lending someone's account, identity or residency (Stripe/PayPal/bank, Upwork/LinkedIn/social accounts, "US person/partner" for a "simple online project", KYC/verification), paid fake engagement (scripted comments or reviews made to look genuine), proxy job interviews ("interview support"), promising to commission everyone who applies or overpay-and-refund setups, and generic work-from-home blasts (typing, retyping, data entry, translation) with no specific client or project.
    Art-specific: reward reference images, usage rights, size/count of pieces, realistic budget. Penalise "art trade", "portfolio piece", "free test piece", "AI art fix for cheap".
 3. match_score 0-100: overall rank value (roughly score*10, adjust within the band for detail quality).
 
