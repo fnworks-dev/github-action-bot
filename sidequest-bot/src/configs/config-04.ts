@@ -73,8 +73,6 @@ export const professions: Record<Profession, ProfessionConfig> = {
         subreddits: [
             'forhire',
             'virtualassistant',
-            'freelance_forhire',
-            'admin',
             'remotework',
             'workonline',
             'digitalnomad',

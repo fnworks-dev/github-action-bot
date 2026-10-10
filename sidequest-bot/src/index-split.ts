@@ -18,6 +18,7 @@ const professions = configModule.professions;
 
 // Import other modules
 import { createHash } from 'crypto';
+import { readFileSync } from 'fs';
 import { keywordIntentCheck } from './ai/intent-detector.js';
 import { scoreJob } from './ai/scorer.js';
 import type { JobScore } from './ai/scorer.js';
@@ -117,7 +118,10 @@ async function fetchSubreddit(subreddit: string): Promise<RawPost[] | null> {
         console.warn(`[Bot-${CONFIG_NUM}] ⚠️  r/${subreddit}: empty listing`);
         return [];
     }
+    return toRawPosts(subreddit, posts);
+}
 
+function toRawPosts(subreddit: string, posts: RedditPost[]): RawPost[] {
     // Drop NSFW-flagged posts at fetch time
     const sfwPosts = posts.filter((post) => !post.over_18);
     if (sfwPosts.length < posts.length) {
@@ -147,28 +151,63 @@ const MIN_SCORE = Number.parseInt(process.env.SIDEQUEST_MIN_SCORE || '4', 10) ||
 // Fail the run (-> Discord alert) when this share of subreddits could not be fetched.
 const MAX_SOURCE_FAILURE_RATIO = 0.8;
 
-async function fetchRedditPosts(): Promise<{ fetched: number; posts: ScoredPost[] }> {
-    const subreddits = getAllSubreddits();
-    console.log(`[Bot-${CONFIG_NUM}] 📡 Fetching from ${subreddits.length} subreddits via Arctic Shift...`);
+// Written by scripts/reddit_local_fetch.py on the laptop (logged-in browser, RSS, Arctic Shift).
+interface LocalFetch {
+    subreddits: Record<string, { channel?: string; posts?: RedditPost[]; error?: string }>;
+}
 
-    const allPosts: RawPost[] = [];
+function readLocalFetch(file: string, subreddits: string[], allPosts: RawPost[]): string[] {
+    const local = JSON.parse(readFileSync(file, 'utf8')) as LocalFetch;
+    console.log(`[Bot-${CONFIG_NUM}] 📡 Reading ${subreddits.length} subreddits from the local fetch (${file})`);
+    const failed: string[] = [];
+    for (const subreddit of subreddits) {
+        const entry = local.subreddits[subreddit.toLowerCase()];
+        const posts = entry?.posts ? toRawPosts(subreddit, entry.posts) : null;
+        if (posts === null) failed.push(subreddit);
+        console.log(`[Bot-${CONFIG_NUM}]    r/${subreddit}: ${posts === null ? `FAILED (${entry?.error ?? 'not fetched'})` : `${posts.length} posts via ${entry?.channel}`}`);
+        allPosts.push(...(posts || []));
+    }
+    return failed;
+}
+
+async function fetchArcticShift(subreddits: string[], allPosts: RawPost[]): Promise<string[]> {
+    console.log(`[Bot-${CONFIG_NUM}] 📡 Fetching from ${subreddits.length} subreddits via Arctic Shift...`);
     let pending = subreddits;
     // Second pass: a subreddit can keep answering 422 through all 3 attempts (~10 s); a bit later it usually works.
     for (let pass = 1; pass <= 2 && pending.length > 0; pass++) {
-        if (pass === 2) await new Promise((resolve) => setTimeout(resolve, 15000));
+        if (pass === 2) {
+            // Most subreddits failed = the mirror is down; a second pass would only run into the 30-min job limit.
+            if (pending.length / subreddits.length >= 0.5) break;
+            await new Promise((resolve) => setTimeout(resolve, 15000));
+        }
         const failed: string[] = [];
-        for (const subreddit of pending) {
+        for (const [i, subreddit] of pending.entries()) {
             const posts = await fetchSubreddit(subreddit);
             if (posts === null) failed.push(subreddit);
             console.log(`[Bot-${CONFIG_NUM}]    r/${subreddit}${pass === 2 ? ' (second pass)' : ''}: ${posts === null ? 'FAILED' : `${posts.length} posts`}`);
             allPosts.push(...(posts || []));
+            if (pass === 1 && i === 3 && failed.length === 4 && pending.length > 4) {
+                console.warn(`[Bot-${CONFIG_NUM}] ⚠️  First 4 subreddits failed: Arctic Shift looks down, skipping the rest`);
+                failed.push(...pending.slice(4));
+                break;
+            }
             await new Promise((resolve) => setTimeout(resolve, 600));
         }
         pending = failed;
     }
-    const failedSubs = pending.length;
+    return pending;
+}
+
+async function fetchRedditPosts(): Promise<{ fetched: number; posts: ScoredPost[] }> {
+    const subreddits = getAllSubreddits();
+    const localFile = process.env.REDDIT_PREFETCH_FILE;
+    const allPosts: RawPost[] = [];
+    const failedSubs = (localFile ? readLocalFetch(localFile, subreddits, allPosts) : await fetchArcticShift(subreddits, allPosts)).length;
     if (subreddits.length > 0 && failedSubs / subreddits.length >= MAX_SOURCE_FAILURE_RATIO) {
-        throw new Error(`Reddit source outage: ${failedSubs}/${subreddits.length} subreddits failed (Arctic Shift)`);
+        const message = `Reddit source outage: ${failedSubs}/${subreddits.length} subreddits failed (${localFile ? 'local fetch' : 'Arctic Shift'})`;
+        // On GitHub this bot only backs up the laptop's direct fetch, so a mirror outage is not worth a failure email.
+        if (process.env.GITHUB_ACTIONS !== 'true') throw new Error(message);
+        console.warn(`[Bot-${CONFIG_NUM}] ⚠️  ${message}; continuing with what was fetched`);
     }
     console.log(`[Bot-${CONFIG_NUM}] 📥 Fetched ${allPosts.length} total posts (${failedSubs} subreddits failed)`);
 
@@ -219,8 +258,9 @@ async function processJobs(): Promise<{ fetched: number; newJobs: number }> {
     let newJobsCount = 0;
     for (const post of posts) {
         const { scored } = post;
-        await insertJob(post, scored.professions, scored.score, scored.summary, scored.analysis, scored.matchScore);
-        newJobsCount++;
+        const inserted = await insertJob(post, scored.professions, scored.score, scored.summary, scored.analysis, scored.matchScore);
+        if (inserted) newJobsCount++;
+        else console.log(`[Bot-${CONFIG_NUM}]   ↔️ already stored by the other runner: ${post.title.slice(0, 50)}`);
     }
 
     return { fetched, newJobs: newJobsCount };

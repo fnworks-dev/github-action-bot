@@ -344,19 +344,21 @@ export async function insertJob(
         green_flags: string[];
     },
     matchScore: number | null = null
-): Promise<string> {
+): Promise<string | null> {
     return retryWithBackoff(
         async () => {
             const db = getDb();
             const id = crypto.randomUUID();
 
-            await db.execute({
+            // NOT EXISTS: the laptop and the GitHub backup can score the same new post at the same time.
+            const result = await db.execute({
                 sql: `
                     INSERT INTO job_posts (
                         id, source, source_id, source_url, title, content, author, subreddit,
                         professions, score, summary, posted_at,
                         project_type, tech_stack, scope, timeline_signal, budget_signal, red_flags, green_flags, match_score
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    WHERE NOT EXISTS (SELECT 1 FROM job_posts WHERE source = ? AND source_id = ?)
                 `,
                 args: [
                     id,
@@ -380,10 +382,12 @@ export async function insertJob(
                     analysis?.red_flags?.length ? JSON.stringify(analysis.red_flags) : null,
                     analysis?.green_flags?.length ? JSON.stringify(analysis.green_flags) : null,
                     matchScore,
+                    post.source,
+                    post.sourceId,
                 ],
             });
 
-            return id;
+            return result.rowsAffected > 0 ? id : null;
         },
         {
             maxAttempts: 3,

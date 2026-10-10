@@ -39,7 +39,6 @@ export const professions: Record<Profession, ProfessionConfig> = {
         ],
         subreddits: [
             'forhire',
-            'freelance_forhire',
             'webdev',
             'gamedev',
             'gameDevClassifieds',
@@ -64,7 +63,6 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'artcommissions',
             'drawforhire',
             'forhire',
-            'freelance_forhire',
             'design',
             'DesignJobs',
             'INAT',

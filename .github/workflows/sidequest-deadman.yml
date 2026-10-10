@@ -23,6 +23,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
           STALE_HOURS=20
           NOW=$(date +%s)
@@ -41,6 +43,23 @@ jobs:
               ALERTS="$ALERTS${NL}🔴 $WF: no success in ${AGE_H}h (threshold ${STALE_HOURS}h)"
             fi
           done
+
+          # What users see: Reddit jobs come mostly from the laptop now, so the board is the real signal.
+          # Alert at 8 h without a new Reddit job, then every 4 h while it lasts (not every hour).
+          REDDIT_STALE_HOURS=8
+          LATEST=$(curl -s -m 20 -X POST "${TURSO_DATABASE_URL/libsql:\/\//https://}/v2/pipeline" \
+            -H "Authorization: Bearer $TURSO_AUTH_TOKEN" -H "Content-Type: application/json" \
+            -d '{"requests":[{"type":"execute","stmt":{"sql":"SELECT MAX(created_at) FROM job_posts WHERE source = '"'"'reddit'"'"'"}},{"type":"close"}]}' \
+            | jq -r '.results[0].response.result.rows[0][0].value // empty')
+          if [ -z "$LATEST" ]; then
+            echo "Could not read the newest Reddit job from the database"
+          else
+            AGE_H=$(( (NOW - $(date -u -d "$LATEST UTC" +%s)) / 3600 ))
+            echo "Newest Reddit job: ${AGE_H}h ago ($LATEST UTC)"
+            if [ "$AGE_H" -ge "$REDDIT_STALE_HOURS" ] && [ $(( (AGE_H - REDDIT_STALE_HOURS) % 4 )) -eq 0 ]; then
+              ALERTS="$ALERTS${NL}🔴 No new Reddit job on the board for ${AGE_H}h. Laptop off, Reddit login expired, or Reddit blocking? Check memory/logs/reddit-fetch-*.log on the laptop."
+            fi
+          fi
 
           if [ -n "$ALERTS" ]; then
             echo "Alerts:$ALERTS"

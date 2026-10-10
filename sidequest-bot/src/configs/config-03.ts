@@ -65,7 +65,6 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'SoundDesign',
             'GameAudio',
             'composers',
-            'freelance_forhire',
             'indiegames',
             'WeAreTheMusicMakers',
             'gamedev',
@@ -79,10 +78,7 @@ export const professions: Record<Profession, ProfessionConfig> = {
         ],
         subreddits: [
             'forhire',
-            'qa',
-            'testing',
             'gameDevClassifieds',
-            'freelance_forhire',
             'softwaretesting',
             'gamedev',
         ],
