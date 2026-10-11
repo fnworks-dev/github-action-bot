@@ -516,6 +516,12 @@ export async function getJobsByProfession(profession: Profession, status?: JobSt
     }));
 }
 
+// Old posts that nobody saved or drafted a reply for. Those stay: they live on in the user's job tracker
+// (these tables share the main DB with Reddit's job_posts).
+export const OLD_UNUSED_POSTS = `created_at < ?
+    AND NOT EXISTS (SELECT 1 FROM user_saved_jobs s WHERE s.job_post_id = job_posts.id)
+    AND NOT EXISTS (SELECT 1 FROM reply_cache r WHERE r.job_post_id = job_posts.id)`;
+
 // Delete old posts (30-day cleanup)
 export async function deleteOldPosts(): Promise<number> {
     return retryWithBackoff(
@@ -526,7 +532,7 @@ export async function deleteOldPosts(): Promise<number> {
 
             // First count the posts to be deleted
             const countResult = await db.execute({
-                sql: `SELECT COUNT(*) as count FROM job_posts WHERE created_at < ?`,
+                sql: `SELECT COUNT(*) as count FROM job_posts WHERE ${OLD_UNUSED_POSTS}`,
                 args: [cutoffDate.toISOString()],
             });
 
@@ -534,7 +540,7 @@ export async function deleteOldPosts(): Promise<number> {
 
             // Then delete them
             await db.execute({
-                sql: `DELETE FROM job_posts WHERE created_at < ?`,
+                sql: `DELETE FROM job_posts WHERE ${OLD_UNUSED_POSTS}`,
                 args: [cutoffDate.toISOString()],
             });
 
