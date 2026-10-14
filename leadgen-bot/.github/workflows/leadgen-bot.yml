@@ -48,8 +48,7 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           
           # AI
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
           
           # Twitter/X Configuration
           TWITTER_SOURCE: ${{ secrets.TWITTER_SOURCE || 'api' }}

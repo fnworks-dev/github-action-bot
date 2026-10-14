@@ -3,7 +3,7 @@ import type { RawPost } from '../types.js';
 
 // Max age for posts (24 hours)
 const MAX_POST_AGE_MS = 24 * 60 * 60 * 1000;
-// ~1,000 fresh posts/day across the subreddits; the newest 8 per subreddit keep AI analysis ~35 min and GLM calls sane.
+// ~1,000 fresh posts/day across the subreddits; the newest 8 per subreddit keep AI analysis ~35 min and Gemini calls sane.
 const MAX_POSTS_PER_SUBREDDIT = Number(process.env.MAX_POSTS_PER_SUBREDDIT) || 8;
 
 interface ArcticShiftPost {

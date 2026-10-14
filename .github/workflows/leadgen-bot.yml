@@ -41,8 +41,9 @@ jobs:
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
+          GEMINI_BACKUP_KEY_1: ${{ secrets.GEMINI_BACKUP_KEY_1 }}
+          GEMINI_BACKUP_KEY_2: ${{ secrets.GEMINI_BACKUP_KEY_2 }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           TWITTER_HEALTH_WEBHOOK_URL: ${{ secrets.TWITTER_HEALTH_WEBHOOK_URL }}
           MIN_SCORE_THRESHOLD: "6"

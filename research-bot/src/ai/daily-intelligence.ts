@@ -1,4 +1,4 @@
-import { callWithRetry } from "./analyzer.js";
+import { analyzeWithGemini, callWithRetry } from "./analyzer.js";
 import { config } from "../config.js";
 import type {
   Problem,
@@ -142,40 +142,7 @@ Score: ${p.developmentScore || "N/A"}
     .replace("{posts}", postsText);
 
   try {
-    const content = await callWithRetry(async () => {
-      const response = await fetch(
-        "https://api.z.ai/api/anthropic/v1/messages",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": config.ai.glmKey, // same Z.ai key as analyzer.ts; ANTHROPIC_API_KEY was never set
-            "anthropic-version": "2023-06-01",
-          },
-          body: JSON.stringify({
-            model: "claude-sonnet-4-20250514",
-            max_tokens: 4000, // GLM reasons first; small caps cut the JSON off (same cap as analyzer.ts)
-            messages: [
-              {
-                role: "user",
-                content: prompt,
-              },
-            ],
-          }),
-        },
-      );
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`API error: ${response.status} - ${errorText}`);
-      }
-
-      const data = await response.json();
-      const textBlock = data.content?.find(
-        (block: any) => block.type === "text",
-      );
-      return textBlock?.text || "";
-    }, "Build Suggestion Generation");
+    const content = await callWithRetry(() => analyzeWithGemini(prompt), "Build Suggestion Generation");
 
     // Extract JSON from response
     const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -227,41 +194,7 @@ Dev Score: ${p.developmentScore || "N/A"}
   const prompt = QUICK_WINS_PROMPT.replace("{posts}", postsText);
 
   try {
-    const content = await callWithRetry(async () => {
-      const response = await fetch(
-        "https://api.z.ai/api/anthropic/v1/messages",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": config.ai.glmKey, // same Z.ai key as analyzer.ts; ANTHROPIC_API_KEY was never set
-            "anthropic-version": "2023-06-01",
-          },
-          body: JSON.stringify({
-            model: "claude-sonnet-4-20250514",
-            max_tokens: 8000, // 30 candidates -> long JSON; 4000 still came back without an array (2026-10-09)
-            messages: [
-              {
-                role: "user",
-                content: prompt,
-              },
-            ],
-          }),
-        },
-      );
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`API error: ${response.status} - ${errorText}`);
-      }
-
-      const data = await response.json();
-      const textBlock = data.content?.find(
-        (block: any) => block.type === "text",
-      );
-      if (!textBlock?.text) console.error(`Quick wins: no text block (stop_reason ${data.stop_reason})`);
-      return textBlock?.text || "";
-    }, "Quick Wins Generation");
+    const content = await callWithRetry(() => analyzeWithGemini(prompt), "Quick Wins Generation");
 
     // Extract JSON array from response
     const jsonMatch = content.match(/\[[\s\S]*\]/);
@@ -302,40 +235,7 @@ Synthesis: ${c.aiSynthesis || "N/A"}
   const prompt = INSIGHTS_PROMPT.replace("{clusters}", clustersText);
 
   try {
-    const content = await callWithRetry(async () => {
-      const response = await fetch(
-        "https://api.z.ai/api/anthropic/v1/messages",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": config.ai.glmKey, // same Z.ai key as analyzer.ts; ANTHROPIC_API_KEY was never set
-            "anthropic-version": "2023-06-01",
-          },
-          body: JSON.stringify({
-            model: "claude-sonnet-4-20250514",
-            max_tokens: 4000, // GLM reasons first; small caps cut the JSON off (same cap as analyzer.ts)
-            messages: [
-              {
-                role: "user",
-                content: prompt,
-              },
-            ],
-          }),
-        },
-      );
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`API error: ${response.status} - ${errorText}`);
-      }
-
-      const data = await response.json();
-      const textBlock = data.content?.find(
-        (block: any) => block.type === "text",
-      );
-      return textBlock?.text || "";
-    }, "Market Insights Generation");
+    const content = await callWithRetry(() => analyzeWithGemini(prompt), "Market Insights Generation");
 
     // Extract JSON array from response
     const jsonMatch = content.match(/\[[\s\S]*\]/);

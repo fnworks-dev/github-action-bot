@@ -34,14 +34,6 @@ Return ONLY valid JSON array like:
 ]`;
 
 // Anthropic-compatible response format (Z.ai proxy)
-interface GLMResponse {
-  content: Array<{
-    type: string;
-    text: string;
-  }>;
-  error?: { message: string };
-}
-
 interface GeminiResponse {
   candidates: Array<{
     content: {
@@ -94,70 +86,57 @@ export async function callWithRetry(
   throw new Error(`${name} failed after ${maxRetries} attempts`);
 }
 
-// Analyze with GLM via Z.ai (Anthropic-compatible)
-async function analyzeWithGLM(prompt: string): Promise<string> {
-  const response = await fetch(config.ai.glmUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": config.ai.glmKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514", // Maps to GLM via Z.ai proxy
-      max_tokens: 4000,
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    console.log(`   GLM error ${response.status}: ${errorText.slice(0, 100)}`);
-    throw new Error(`GLM API error: ${response.status}`);
-  }
-
-  const data: GLMResponse = await response.json();
-
-  if (data.error) {
-    throw new Error(`GLM error: ${data.error.message}`);
-  }
-
-  // Anthropic format: content is array of blocks with type and text
-  const textBlock = data.content?.find((block) => block.type === "text");
-  return textBlock?.text || "";
+// Errors tied to one key/project (bad or blocked key, quota): the next key can still succeed.
+// Anything else (503 overload, timeout) hits every key, so move to the next model.
+export function isKeySpecificError(status: number, body: string): boolean {
+  return status === 401 || status === 403 || status === 429 || body.includes("API_KEY_INVALID");
 }
 
-// Analyze with Gemini (fallback)
-async function analyzeWithGemini(prompt: string): Promise<string> {
-  const url = `${config.ai.geminiUrl}?key=${config.ai.geminiKey}`;
+let geminiKeyCursor = 0;
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 2000,
-      },
-    }),
-  });
+// Gemini key pool x model chain. Starting key rotates per call so usage spreads across projects.
+export async function analyzeWithGemini(prompt: string): Promise<string> {
+  const keys = config.ai.geminiKeys;
+  if (!keys.length) throw new Error("Gemini: no keys configured");
+  const start = geminiKeyCursor++ % keys.length;
+  const rotated = [...keys.slice(start), ...keys.slice(0, start)];
+  let lastError = "no models";
 
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    console.log(
-      `   Gemini error ${response.status}: ${errorText.slice(0, 100)}`,
-    );
-    throw new Error(`Gemini API error: ${response.status}`);
+  for (const model of config.ai.geminiModels) {
+    for (const [i, key] of rotated.entries()) {
+      const label = `${model} key …${key.slice(-4)} (${i + 1}/${rotated.length})`;
+      let response: Response;
+      try {
+        response = await fetch(`${config.ai.geminiBaseUrl}/${model}:generateContent`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.3, maxOutputTokens: 4000 },
+          }),
+          signal: AbortSignal.timeout(60_000),
+        });
+      } catch (error: any) {
+        lastError = `${label}: ${error.name === "TimeoutError" ? "timeout" : error.message}`;
+        break;
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "");
+        lastError = `${label}: ${response.status} ${errorText.slice(0, 120)}`;
+        console.log(`   Gemini error ${lastError}`);
+        if (isKeySpecificError(response.status, errorText)) continue;
+        break;
+      }
+
+      const data: GeminiResponse = await response.json();
+      const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
+      if (text) return text;
+      lastError = `${label}: empty content`;
+      break;
+    }
   }
-
-  const data: GeminiResponse = await response.json();
-
-  if (data.error) {
-    throw new Error(`Gemini error: ${data.error.message}`);
-  }
-
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  throw new Error(`Gemini API error: ${lastError}`);
 }
 
 // Batch analyze posts
@@ -174,17 +153,7 @@ export async function analyzeBatch(
   try {
     let content: string = "";
 
-    // Try GLM first
-    if (config.ai.glmKey) {
-      try {
-        content = await callWithRetry(() => analyzeWithGLM(prompt), "GLM", 2);
-      } catch (glmError: any) {
-        console.log(`   ⚠️ GLM failed: ${glmError.message}`);
-      }
-    }
-
-    // Fallback to Gemini
-    if (!content && config.ai.geminiKey) {
+    if (config.ai.geminiKey) {
       try {
         content = await callWithRetry(
           () => analyzeWithGemini(prompt),
@@ -256,9 +225,7 @@ export async function generateWeeklySummary(weekData: string): Promise<any> {
   try {
     let content = "";
 
-    if (config.ai.glmKey) {
-      content = await callWithRetry(() => analyzeWithGLM(prompt), "GLM", 2);
-    } else if (config.ai.geminiKey) {
+    if (config.ai.geminiKey) {
       content = await callWithRetry(
         () => analyzeWithGemini(prompt),
         "Gemini",
@@ -313,9 +280,7 @@ export async function generateClusterSynthesis(
   try {
     let content = "";
 
-    if (config.ai.glmKey) {
-      content = await callWithRetry(() => analyzeWithGLM(prompt), "GLM", 2);
-    } else if (config.ai.geminiKey) {
+    if (config.ai.geminiKey) {
       content = await callWithRetry(
         () => analyzeWithGemini(prompt),
         "Gemini",
@@ -448,9 +413,7 @@ export async function analyzeProblemSuggestion(input: {
   try {
     let content = "";
 
-    if (config.ai.glmKey) {
-      content = await callWithRetry(() => analyzeWithGLM(prompt), "GLM", 2);
-    } else if (config.ai.geminiKey) {
+    if (config.ai.geminiKey) {
       content = await callWithRetry(
         () => analyzeWithGemini(prompt),
         "Gemini",
@@ -515,9 +478,7 @@ export async function analyzeClusterSuggestion(input: {
   try {
     let content = "";
 
-    if (config.ai.glmKey) {
-      content = await callWithRetry(() => analyzeWithGLM(prompt), "GLM", 2);
-    } else if (config.ai.geminiKey) {
+    if (config.ai.geminiKey) {
       content = await callWithRetry(
         () => analyzeWithGemini(prompt),
         "Gemini",

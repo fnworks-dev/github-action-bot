@@ -89,8 +89,7 @@ Commands:
 
 | Secret | Description | Default |
 |--------|-------------|---------|
-| `GEMINI_API_KEY` | Google Gemini API key | - |
-| `GLM_API_KEY` | GLM/Z.ai API key | - |
+| `GEMINI_API_KEYS` | Gemini API keys, comma-separated, one per Google project | - |
 | `TWITTERAPI_KEY` | TwitterAPI.io key | - |
 | `PRODUCTHUNT_API_TOKEN` | ProductHunt API token | - |
 | `MIN_SCORE_THRESHOLD` | Min score for Discord notify | `6` |

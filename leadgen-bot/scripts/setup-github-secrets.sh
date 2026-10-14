@@ -100,8 +100,7 @@ echo ""
 
 # AI secrets (at least one required)
 echo "🤖 AI Secrets (at least one required):"
-set_secret_from_env "GEMINI_API_KEY"
-set_secret_from_env "GLM_API_KEY"
+set_secret_from_env "GEMINI_API_KEYS"
 echo ""
 
 # Twitter/X secrets
