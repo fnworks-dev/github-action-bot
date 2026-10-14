@@ -1,9 +1,7 @@
 name: Leadgen Bot (Reddit + HN)
 
 on:
-  schedule:
-    # Run every 2 hours
-    - cron: "0 */2 * * *"
+  # Turned off 2026-10-14: this repo focuses on Sidequestboard bots. Manual runs only.
   workflow_dispatch:
 
 permissions:

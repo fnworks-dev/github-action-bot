@@ -1,9 +1,7 @@
 name: Leadgen Twitter Bot
 
 on:
-  schedule:
-    # Run every 4 hours
-    - cron: "0 */4 * * *"
+  # Turned off 2026-10-14: this repo focuses on Sidequestboard bots. Manual runs only.
   workflow_dispatch:
 
 jobs:

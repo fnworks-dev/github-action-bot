@@ -1,9 +1,7 @@
 name: Research Bot (Problem Discovery)
 
 on:
-  schedule:
-    # Run daily at 00:00 WIB (17:00 UTC)
-    - cron: '0 17 * * *'
+  # Turned off 2026-10-14: this repo focuses on Sidequestboard bots. Manual runs only.
   workflow_dispatch:
 
 permissions:

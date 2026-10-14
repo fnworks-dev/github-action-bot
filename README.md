@@ -23,7 +23,7 @@ This public repository is used to run GitHub Actions with unlimited free minutes
 
 **File**: `.github/workflows/leadgen-bot.yml`
 
-- **Schedule**: Every 2 hours
+- **Schedule**: Off since 2026-10-14 (manual dispatch only)
 - **Purpose**: Scrapes Reddit and Hacker News for potential leads, scores them with AI, saves to database, and sends Discord notifications for high-quality leads
 - **Source Code**: `leadgen-bot/`
 
@@ -31,7 +31,7 @@ This public repository is used to run GitHub Actions with unlimited free minutes
 
 **File**: `.github/workflows/leadgen-twitter-bot.yml`
 
-- **Schedule**: Every 4 hours
+- **Schedule**: Off since 2026-10-14 (manual dispatch only)
 - **Purpose**: Scrapes Twitter/X for potential leads using TwitterAPI.io, scores them with AI, saves to database, and sends Discord notifications
 - **Source Code**: `leadgen-bot/`
 
@@ -39,7 +39,7 @@ This public repository is used to run GitHub Actions with unlimited free minutes
 
 **File**: `.github/workflows/research-bot.yml`
 
-- **Schedule**: Daily at 00:00 WIB (17:00 UTC)
+- **Schedule**: Off since 2026-10-14 (manual dispatch only)
 - **Purpose**: Discovers and analyzes problems from various sources, scores them for relevance, saves to database, and sends Discord notifications
 - **Source Code**: `research-bot/`
 
