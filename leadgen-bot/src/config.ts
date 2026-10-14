@@ -1,4 +1,11 @@
 // Configuration loaded from environment variables
+const csv = (raw: string) => [...new Set(raw.split(",").map((s) => s.trim()).filter(Boolean))];
+const GEMINI_KEYS = csv([
+  process.env.GEMINI_API_KEYS,
+  process.env.GEMINI_API_KEY,
+  process.env.GEMINI_BACKUP_KEY_1,
+  process.env.GEMINI_BACKUP_KEY_2,
+].filter(Boolean).join(","));
 export const config = {
   // Turso Database
   turso: {
@@ -6,15 +13,17 @@ export const config = {
     authToken: process.env.TURSO_AUTH_TOKEN || "",
   },
 
-  // AI (Gemini or GLM fallback)
+  // AI: Gemini key pool x model chain (see src/ai/gemini.ts).
   ai: {
-    geminiKey: process.env.GEMINI_API_KEY || "",
-    geminiUrl:
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
-    glmKey: process.env.GLM_API_KEY || "",
-    // Anthropic-compatible endpoint for GLM Coding Plan
-    glmUrl: "https://api.z.ai/api/anthropic/v1/messages",
+    // Comma-separated GEMINI_API_KEYS (one per Google project; free limits are per project)
+    // plus legacy single-key vars. Rotated per call with key failover.
+    geminiKeys: GEMINI_KEYS,
+    geminiKey: GEMINI_KEYS[0] || "",
+    geminiBaseUrl: "https://generativelanguage.googleapis.com/v1beta/models",
+    // All 500 RPD free per project (2026-10-14); gemini-2.0-flash is retired.
+    geminiModels: csv(process.env.GEMINI_MODELS || "gemini-3.1-flash-lite,gemini-3.1-flash-lite-preview,gemini-3.5-flash-lite"),
   },
+
 
   // Discord
   discord: {
@@ -195,8 +204,8 @@ export function validateConfig(): void {
 
   const missing = required.filter(([_, value]) => !value);
 
-  if (!config.ai.geminiKey && !config.ai.glmKey) {
-    missing.push(["GEMINI_API_KEY or GLM_API_KEY", ""]);
+  if (!config.ai.geminiKeys.length) {
+    missing.push(["GEMINI_API_KEYS", ""]);
   }
 
   if (missing.length > 0) {
