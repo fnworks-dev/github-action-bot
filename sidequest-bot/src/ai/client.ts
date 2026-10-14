@@ -165,105 +165,72 @@ async function runProviderWithRetries(
     throw lastError || new ProviderError(provider, null, false, `${provider} failed for ${taskLabel}`);
 }
 
+// Errors tied to one key/project (bad or blocked key, quota): the next key can still succeed.
+// Anything else (503 overload, timeout, cut-off answer) hits every key, so move to the next model.
+export function isKeySpecificError(status: number, body: string): boolean {
+    return status === 401 || status === 403 || status === 429 || body.includes('API_KEY_INVALID');
+}
+
+let geminiKeyCursor = 0;
+
 async function generateWithGemini(options: AITextOptions): Promise<string> {
-    const models = config.ai.geminiModels || [];
-    const keys = [config.ai.geminiKey, ...(config.ai.geminiBackupKeys || [])].filter(Boolean);
-    const baseUrl = config.ai.geminiBaseUrl || '';
+    const keys = config.ai.geminiKeys;
+    // Rotate the starting key per call so usage spreads across projects.
+    const start = geminiKeyCursor++ % keys.length;
+    const rotated = [...keys.slice(start), ...keys.slice(0, start)];
+    let lastError: ProviderError | null = null;
 
-    if (baseUrl && models.length > 0 && keys.length > 0) {
-        let lastError: ProviderError | null = null;
-
-        for (let ki = 0; ki < keys.length; ki += 1) {
-            const key = keys[ki];
-            for (const model of models) {
-                const url = `${baseUrl}/${model}:generateContent?key=${key}`;
-                let response: Response;
-
-                try {
-                    response = await fetchWithTimeout(url, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            contents: [{
-                                parts: [{ text: options.prompt }]
-                            }],
-                            generationConfig: {
-                                temperature: options.temperature,
-                                maxOutputTokens: options.maxOutputTokens,
-                            }
-                        })
-                    }, DEFAULT_TIMEOUT_MS);
-                } catch (error) {
-                    lastError = toProviderError('Gemini', error);
-                    continue;
-                }
-
-                if (!response.ok) {
-                    const errorText = await response.text().catch(() => '');
-                    lastError = new ProviderError(
-                        'Gemini',
-                        response.status,
-                        RETRYABLE_STATUS_CODES.has(response.status),
-                        `Gemini API error: ${response.status} ${errorText.slice(0, 200)}`
-                    );
-                    continue;
-                }
-
-                const data = await response.json() as GeminiResponse;
-                // A thinking model can spend the whole budget on thoughts; a cut-off answer is useless, try the next model.
-                if (data.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
-                    lastError = new ProviderError('Gemini', response.status, true, `${model} answer cut off at maxOutputTokens`);
-                    continue;
-                }
-                const text = extractGeminiText(data);
-                if (!text) {
-                    lastError = new ProviderError('Gemini', response.status, true, 'Gemini API returned empty content');
-                    continue;
-                }
-
-                return text;
+    for (const model of config.ai.geminiModels) {
+        for (const [i, key] of rotated.entries()) {
+            const label = `${model} key …${key.slice(-4)} (${i + 1}/${rotated.length})`;
+            let response: Response;
+            try {
+                response = await fetchWithTimeout(`${config.ai.geminiBaseUrl}/${model}:generateContent`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: options.prompt }] }],
+                        generationConfig: {
+                            temperature: options.temperature,
+                            maxOutputTokens: options.maxOutputTokens,
+                        }
+                    })
+                }, DEFAULT_TIMEOUT_MS);
+            } catch (error) {
+                lastError = toProviderError(`Gemini ${label}`, error);
+                break;
             }
-        }
 
-        throw lastError || new ProviderError('Gemini', null, true, 'All Gemini keys/models failed');
-    }
-
-    let response: Response;
-    try {
-        response = await fetchWithTimeout(`${config.ai.geminiUrl}?key=${config.ai.geminiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{
-                    parts: [{ text: options.prompt }]
-                }],
-                generationConfig: {
-                    temperature: options.temperature,
-                    maxOutputTokens: options.maxOutputTokens,
+            if (!response.ok) {
+                const errorText = await response.text().catch(() => '');
+                lastError = new ProviderError(
+                    'Gemini',
+                    response.status,
+                    RETRYABLE_STATUS_CODES.has(response.status),
+                    `Gemini ${label}: ${response.status} ${errorText.slice(0, 200)}`
+                );
+                if (isKeySpecificError(response.status, errorText)) {
+                    console.warn(`⚠️ ${lastError.message.slice(0, 120)}; trying next key`);
+                    continue;
                 }
-            })
-        }, DEFAULT_TIMEOUT_MS);
-    } catch (error) {
-        throw toProviderError('Gemini', error);
-    }
+                break;
+            }
 
-    if (!response.ok) {
-        const errorText = await response.text().catch(() => '');
-        throw new ProviderError(
-            'Gemini',
-            response.status,
-            RETRYABLE_STATUS_CODES.has(response.status),
-            `Gemini API error: ${response.status} ${errorText.slice(0, 200)}`
-        );
+            const data = await response.json() as GeminiResponse;
+            // A thinking model can spend the whole budget on thoughts; a cut-off answer is useless, try the next model.
+            if (data.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
+                lastError = new ProviderError('Gemini', response.status, true, `${model} answer cut off at maxOutputTokens`);
+                break;
+            }
+            const text = extractGeminiText(data);
+            if (!text) {
+                lastError = new ProviderError('Gemini', response.status, true, `${model} returned empty content`);
+                break;
+            }
+            return text;
+        }
     }
-
-    const data = await response.json() as GeminiResponse;
-    const text = extractGeminiText(data);
-    if (!text) {
-        throw new ProviderError('Gemini', response.status, true, 'Gemini API returned empty content');
-    }
-
-    return text;
+    throw lastError || new ProviderError('Gemini', null, true, 'All Gemini keys/models failed');
 }
 
 // OpenAI-compatible chat completions (NVIDIA NIM, fnworks llm-proxy).
@@ -350,7 +317,7 @@ export async function generateTextWithFallback(options: AITextOptions): Promise<
     // [name, enabled, run, attempts]. Gemini primary, Ollama (LLM proxy) fallback. Gemini and the
     // proxy get 1 attempt each: their key x model / model lists are already the retry.
     const tiers: Array<[string, boolean, () => Promise<string>, number]> = [
-        ['Gemini', Boolean(config.ai.geminiKey), () => generateWithGemini(options), 1],
+        ['Gemini', config.ai.geminiKeys.length > 0, () => generateWithGemini(options), 1],
         ['LLM Proxy', Boolean(config.ai.proxyKey && config.ai.proxyModels.length), () => generateWithProxy(options), 1],
         ['NVIDIA NIM', Boolean(config.ai.nvidiaNimKey), () => generateWithNvidiaNim(options), DEFAULT_MAX_ATTEMPTS],
     ];

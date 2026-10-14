@@ -2,6 +2,14 @@
 import type { ProfessionConfig, Profession } from './types.js';
 import { shouldFilterShared } from './filters.js';
 
+const csv = (raw: string) => [...new Set(raw.split(',').map((s) => s.trim()).filter(Boolean))];
+const GEMINI_KEYS = csv([
+    process.env.GEMINI_API_KEYS,
+    process.env.GEMINI_API_KEY,
+    process.env.GEMINI_BACKUP_KEY_1,
+    process.env.GEMINI_BACKUP_KEY_2,
+].filter(Boolean).join(','));
+
 export const config = {
     // Turso Database
     turso: {
@@ -19,24 +27,15 @@ export const config = {
             .split(',')
             .map((m) => m.trim())
             .filter(Boolean),
-        geminiKey: process.env.GEMINI_API_KEY || '',
-        geminiBackupKeys: [
-            process.env.GEMINI_BACKUP_KEY_1 || '',
-            process.env.GEMINI_BACKUP_KEY_2 || '',
-        ].filter((k) => k !== ''),
-        // Fastest + always answered first; 3-flash-preview after 2.5-flash because it often 503s (overloaded).
-        // gemma-4-31b-it removed: 39s/500 on the Gemini API, and the Ollama tier already serves gemma4.
-        geminiModels: [
-            'gemini-3.1-flash-lite-preview',
-            'gemini-2.5-flash',
-            'gemini-3-flash-preview',
-            'gemini-2.5-flash-lite',
-        ],
+        // Key pool: comma-separated GEMINI_API_KEYS (one per Google project; free limits are
+        // per project) plus the legacy single-key vars. Rotated per call with key failover.
+        geminiKeys: GEMINI_KEYS,
+        geminiKey: GEMINI_KEYS[0] || '',
+        // Benchmarked 2026-10-14 on real posts: 3.1-flash-lite scores like the old primary
+        // (3.1-flash-lite-preview); 3.5-flash-lite is stricter, so it is last. All 500 RPD free
+        // per project; 2.5/3.x Flash are 20 RPD and 2.5-flash-lite is closed to new projects.
+        geminiModels: csv(process.env.GEMINI_MODELS || 'gemini-3.1-flash-lite,gemini-3.1-flash-lite-preview,gemini-3.5-flash-lite'),
         geminiBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/models',
-        // Backwards-compatible single-model endpoint (used only if cascade isn't available).
-        geminiUrl:
-            process.env.GEMINI_URL ||
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
 
         // NVIDIA NIM (OpenAI-compatible chat completions)
         nvidiaNimKey: process.env.NIM_API_KEY || process.env.NVIDIA_NIM_API_KEY || process.env.NVIDIA_API_KEY || '',
