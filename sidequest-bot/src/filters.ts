@@ -41,6 +41,8 @@ const JUNK_PATTERNS: RegExp[] = [
     // Seller/unpaid title tags used on r/HungryArtists, r/artcommissions, r/drawforhire, r/forhire:
     // the poster is offering services (or not paying), never a gig.
     /^\s*[\[(]\s*(fh|for[\s-]?hire|offer(ing)?|unpaid|hobby|rev[\s-]?share|commissions? open|open commissions?)\s*[\])]/i,
+    // Copy-paste "Hiring Freelance Writers – Remote, Ongoing Work" ring: same body from 10+ accounts, no pay, no client
+    /rewrite and improve existing content while preserving its intended meaning/i,
     // Discord/community invite spam
     /discord\.gg\/\S+/i,
     // Link-shortener spam

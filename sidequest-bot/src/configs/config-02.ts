@@ -87,6 +87,9 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'freelance',
             'selfpublish',
             'marketing',
+            'HireaWriter', // added 2026-10-26 with the next two after a dry run: ~12 scored gigs/week, none already stored
+            'freelancewriting',
+            'ContentWritingJobs',
         ],
     },
     audio: {

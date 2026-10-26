@@ -76,6 +76,7 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'remotework',
             'workonline',
             'digitalnomad',
+            'hiring', // added 2026-10-26: US admin/support gigs; RemoteJobs/WFHJobs were tested and are mostly job seekers
         ],
     },
 };
