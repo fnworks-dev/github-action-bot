@@ -1,8 +1,8 @@
-import os, sys, unittest
+import json, os, sys, unittest
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(__file__))
-from reddit_local_fetch import Browser, Channel, HttpError, fetch_all, parse_atom  # noqa: E402
+from reddit_local_fetch import Browser, Channel, HttpError, fetch_all, mark_nsfw, parse_atom  # noqa: E402
 
 ATOM = b'''<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom">
 <entry><author><name>/u/buyer1</name></author><id>t3_1abc23</id>
@@ -80,6 +80,27 @@ class Tests(unittest.TestCase):
         self.assertEqual(rss.calls, ['a'])                     # one 429, then RSS is left alone
         self.assertIn('rate limited', rss.disabled)
         self.assertTrue(all(out[s]['channel'] == 'arctic' for s in 'abcd'))
+
+    def test_mark_nsfw_from_arctic_and_fail_open(self):
+        def results():
+            return {'a': {'channel': 'browser', 'posts': [{'id': 'x1', 'over_18': False}, {'id': 'x2', 'over_18': False}]},
+                    'b': {'channel': 'rss', 'posts': [{'id': 'x3', 'over_18': False}]},
+                    'c': {'channel': 'arctic', 'posts': [{'id': 'x4', 'over_18': False}]}, 'd': {'error': 'down'}}
+        urls = []
+        def get(url):
+            urls.append(url)
+            asked = url.split('ids=')[1].split(',')
+            return json.dumps({'data': [d for d in ({'id': 'x2', 'over_18': True}, {'id': 'x3', 'over_18': False}) if d['id'] in asked]})
+        r = results()
+        self.assertIn('1 flagged', mark_nsfw(r, get, chunk=2))
+        self.assertEqual([p['over_18'] for p in r['a']['posts'] + r['b']['posts']], [False, True, False])
+        self.assertEqual(len(urls), 2)  # x1,x2 then x3; arctic posts carry their own flag
+        self.assertNotIn('x4', ''.join(urls))
+        def down(url):
+            raise HttpError(522)
+        r = results()
+        self.assertIn('failed', mark_nsfw(r, down))
+        self.assertFalse(any(p['over_18'] for x in r.values() for p in x.get('posts', [])))
 
     def test_all_channels_down(self):
         down = lambda: Fake('x', TimeoutError('timed out'))

@@ -39,16 +39,10 @@ export const professions: Record<Profession, ProfessionConfig> = {
         ],
         subreddits: [
             'forhire',
-            'webdev',
             'gamedev',
             'gameDevClassifieds',
-            'reactjs',
-            'javascript',
-            'python',
             'rust',
             'golang',
-            'node',
-            'Frontend',
         ],
     },
     artist: {
@@ -65,8 +59,6 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'design',
             'DesignJobs',
             'INAT',
-            'pixelart',
-            '3Dmodeling',
             'Blender',
             'ComicBookCollabs', // added 2026-10-11
         ],

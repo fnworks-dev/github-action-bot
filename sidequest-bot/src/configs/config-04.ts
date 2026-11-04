@@ -73,9 +73,6 @@ export const professions: Record<Profession, ProfessionConfig> = {
         subreddits: [
             'forhire',
             'virtualassistant',
-            'remotework',
-            'workonline',
-            'digitalnomad',
             'hiring', // added 2026-10-26: US admin/support gigs; RemoteJobs/WFHJobs were tested and are mostly job seekers
         ],
     },
@@ -84,9 +81,6 @@ export const professions: Record<Profession, ProfessionConfig> = {
 export const allSubreddits = [
     ...professions['virtual-assistant'].subreddits,
     'startups',
-    'cofounder',
-    'Entrepreneur',
-    'indiehackers',
     'SaaS',
     'smallbusiness',
     'hwstartups',

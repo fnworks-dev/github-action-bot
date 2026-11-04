@@ -62,12 +62,8 @@ export const professions: Record<Profession, ProfessionConfig> = {
         ],
         subreddits: [
             'forhire',
-            'VideoEditing',
-            'editors',
             'creatorservices',
-            'youtubers',
             'ContentCreators',
-            'Premiere',
             'AfterEffects',
             'FindVideoEditors', // added 2026-10-11 with the next two, keep the ones that yield jobs
             'VideoEditor_ForHire',
@@ -82,9 +78,7 @@ export const professions: Record<Profession, ProfessionConfig> = {
         ],
         subreddits: [
             'forhire',
-            'freelanceWriters',
             'copywriting',
-            'freelance',
             'selfpublish',
             'marketing',
             'HireaWriter', // added 2026-10-26 with the next two after a dry run: ~12 scored gigs/week, none already stored

@@ -64,8 +64,7 @@ def parse_atom(data):
             'author': (e.findtext(f'{ATOM}author/{ATOM}name') or '').removeprefix('/u/'),
             'permalink': urllib.parse.urlparse(url).path, 'url': url,
             'created_utc': datetime.fromisoformat(published).timestamp() if published else 0,
-            # ponytail: RSS has no NSFW flag; negative filters and the AI scorer still apply. Browser/Arctic carry it.
-            'is_self': bool(body), 'over_18': False,
+            'is_self': bool(body), 'over_18': False,  # RSS has no NSFW flag: mark_nsfw() fills it in from Arctic Shift
         })
     return posts
 
@@ -153,6 +152,25 @@ class Browser(Channel):
         return parse_atom(r['xml'].encode())
 
 
+def mark_nsfw(results, get=lambda url: http_get(url, 30, {'User-Agent': 'SidequestBot-local/1.0'}), chunk=500):
+    """Set over_18 on RSS posts from Arctic Shift, which mirrors new posts within about a minute.
+    Fails open (posts stay unflagged; the keyword filters and the AI scorer still apply). Returns a log line."""
+    posts = {p['id']: p for r in results.values() if r.get('channel') in ('browser', 'rss') for p in r['posts']}
+    ids, known, flagged = list(posts), 0, 0
+    for i in range(0, len(ids), chunk):
+        try:
+            data = json.loads(get('https://arctic-shift.photon-reddit.com/api/posts/ids?fields=id,over_18&ids=' + ','.join(ids[i:i + chunk])))
+        except Exception as e:
+            return f'nsfw: Arctic Shift failed ({e}) after {known}/{len(ids)} posts, {flagged} flagged; the rest unchecked'
+        for d in data.get('data') or []:
+            if d.get('id') in posts:
+                known += 1
+                if d.get('over_18'):
+                    posts[d['id']]['over_18'] = True
+                    flagged += 1
+    return f'nsfw: {flagged} flagged by Arctic Shift ({known}/{len(ids)} posts known)'
+
+
 def kill_group(pid, sig):
     try:
         os.killpg(pid, sig)
@@ -225,6 +243,7 @@ def main():
     if browser.disabled:
         print(f'⚠️  browser channel off: {browser.disabled}')
     results = fetch_all(subs, channels)
+    print(mark_nsfw(results))
     stats = {n: {'ok': c.ok, 'failed': c.failed, 'disabled': c.disabled} for n, c in channels.items()}
     ok = sum(1 for r in results.values() if 'posts' in r)
     print(f'📥 {ok}/{len(subs)} subreddits fetched | ' + ' | '.join(f'{n}: {s["ok"]} ok, {s["failed"]} failed' + (f', OFF: {s["disabled"]}' if s['disabled'] else '') for n, s in stats.items()))
