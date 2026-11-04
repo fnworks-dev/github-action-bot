@@ -2,7 +2,7 @@ import os, sys, unittest
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(__file__))
-from reddit_local_fetch import Channel, HttpError, fetch_all, parse_atom  # noqa: E402
+from reddit_local_fetch import Browser, Channel, HttpError, fetch_all, parse_atom  # noqa: E402
 
 ATOM = b'''<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom">
 <entry><author><name>/u/buyer1</name></author><id>t3_1abc23</id>
@@ -42,38 +42,49 @@ class Tests(unittest.TestCase):
         self.assertFalse(link_post['is_self'])
         self.assertEqual(link_post['selftext'], '')
 
-    def test_split_and_failover(self):
-        browser = Fake('browser', ['b'])
+    def test_failover_order(self):
+        browser = Fake('browser', lambda sub: TimeoutError('slow') if sub == 'two' else ['b'])
         rss = Fake('rss', lambda sub: HttpError(500) if sub == 'two' else ['r'])
         arctic = Fake('arctic', ['a'])
-        out = fetch_all(['one', 'two', 'three'], {'browser': browser, 'rss': rss, 'arctic': arctic}, slot=0, pause=lambda: None, log=lambda _: None)
-        self.assertEqual(out['one']['channel'], 'browser')   # even index starts with the browser
-        self.assertEqual(out['two']['channel'], 'browser')   # rss first, failed, browser took over
-        self.assertEqual(out['three']['channel'], 'browser')
-        self.assertEqual(rss.calls, ['two'])
-        self.assertEqual(arctic.calls, [])
+        out = fetch_all(['one', 'two', 'three'], {'browser': browser, 'rss': rss, 'arctic': arctic}, pause=lambda: None, log=lambda _: None)
+        self.assertEqual([out[s]['channel'] for s in ('one', 'two', 'three')], ['browser', 'arctic', 'browser'])
+        self.assertEqual(rss.calls, ['two'])                 # only asked when the browser failed
+        self.assertEqual(arctic.calls, ['two'])
+
+    def test_browser_hands_out_prefetched_feeds(self):
+        b = Browser()
+        b.results = {'ok': {'xml': ATOM.decode()}, 'gone': {'status': 404, 'error': 'other: page not found'},
+                     'wall': {'status': 403, 'error': "blocked: You've been blocked by network security."}}
+        b.stopped = 'blocked at r/wall'
+        arctic = Fake('arctic', ['a'])
+        out = fetch_all(['ok', 'gone', 'wall', 'later'], {'browser': b, 'rss': Fake('rss', HttpError(429)), 'arctic': arctic},
+                        pause=lambda: None, log=lambda _: None)
+        self.assertEqual(out['ok']['channel'], 'browser')
+        self.assertEqual([p['id'] for p in out['ok']['posts']], ['1abc23', 'link99'])
+        self.assertIn('blocked by Reddit', b.disabled)       # the wall switched it off; the dead subreddit did not
+        self.assertEqual(arctic.calls, ['gone', 'wall', 'later'])
 
     def test_blocked_channel_is_switched_off_and_dead_subreddit_is_not(self):
         wall = HttpError(403, "You've been blocked by network security.")
         browser = Fake('browser', lambda sub: HttpError(404) if sub == 'gone' else wall)
         rss = Fake('rss', ['r'])
-        out = fetch_all(['gone', 'a', 'b', 'c'], {'browser': browser, 'rss': rss, 'arctic': Fake('arctic', [])}, slot=0, pause=lambda: None, log=lambda _: None)
+        out = fetch_all(['gone', 'a', 'b', 'c'], {'browser': browser, 'rss': rss, 'arctic': Fake('arctic', [])}, pause=lambda: None, log=lambda _: None)
         self.assertIn('blocked by Reddit', browser.disabled)  # switched off by the wall
-        self.assertEqual(browser.calls, ['gone', 'b'])        # 404 did not count; the wall at 'b' stopped it
+        self.assertEqual(browser.calls, ['gone', 'a'])        # 404 did not count; the wall at 'a' stopped it
         self.assertTrue(all(out[s]['channel'] == 'rss' for s in ('gone', 'a', 'b', 'c')))
 
     def test_rate_limit_switches_channel_off_at_once(self):
         rss = Fake('rss', HttpError(429))
-        browser = Fake('browser', ['b'])
-        out = fetch_all(['a', 'b', 'c', 'd'], {'browser': browser, 'rss': rss, 'arctic': Fake('arctic', [])}, slot=1, pause=lambda: None, log=lambda _: None)
+        browser = Fake('browser', HttpError(404))              # nothing from the browser, without switching it off
+        out = fetch_all(['a', 'b', 'c', 'd'], {'browser': browser, 'rss': rss, 'arctic': Fake('arctic', ['x'])}, pause=lambda: None, log=lambda _: None)
         self.assertEqual(rss.calls, ['a'])                     # one 429, then RSS is left alone
         self.assertIn('rate limited', rss.disabled)
-        self.assertTrue(all(out[s]['channel'] == 'browser' for s in 'abcd'))
+        self.assertTrue(all(out[s]['channel'] == 'arctic' for s in 'abcd'))
 
     def test_all_channels_down(self):
         down = lambda: Fake('x', TimeoutError('timed out'))
         chans = {'browser': down(), 'rss': down(), 'arctic': down()}
-        out = fetch_all([f's{i}' for i in range(5)], chans, slot=1, pause=lambda: None, log=lambda _: None)
+        out = fetch_all([f's{i}' for i in range(5)], chans, pause=lambda: None, log=lambda _: None)
         self.assertTrue(all('error' in r for r in out.values()))
         self.assertTrue(all(c.disabled for c in chans.values()))  # 3 failures in a row switch each off
 

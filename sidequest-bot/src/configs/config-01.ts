@@ -61,7 +61,6 @@ export const professions: Record<Profession, ProfessionConfig> = {
         subreddits: [
             'HungryArtists',
             'artcommissions',
-            'drawforhire',
             'forhire',
             'design',
             'DesignJobs',

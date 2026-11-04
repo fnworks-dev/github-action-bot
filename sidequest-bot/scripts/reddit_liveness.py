@@ -3,8 +3,9 @@
 
 A user who taps a card and lands on "removed by moderator" feels cheated. On 2026-10-29, 26% of the checkable
 Reddit cards pointed at such posts (35 of 35 sampled were really gone), and nothing ever re-checked them.
-The logged-in /new.json listings that reddit_local_fetch.py already downloads leave removed and deleted posts out,
-so a card whose post time falls inside a fetched listing's span but is missing from it is gone: no extra Reddit
+The logged-in listings that reddit_local_fetch.py already downloads (since 2026-11-04 the RSS feeds read through the
+pi-browser profile; all 8 posts they flagged that day were really deleted or removed) leave removed and deleted posts
+out, so a card whose post time falls inside a fetched listing's span but is missing from it is gone: no extra Reddit
 requests. Sets job_posts.status = 'removed' (the board's feed skips it), and back to 'new' if the post shows up
 again (a mod approved it).
 
@@ -20,8 +21,8 @@ WINDOW_DAYS = 14
 
 
 def listings_from_fetch(fetch):
-    """{subreddit (lowercase): posts} for listings read by the logged-in browser. RSS and the Arctic mirror are
-    left out: the mirror keeps removed posts, and RSS has not been checked."""
+    """{subreddit (lowercase): posts} for listings read by the logged-in browser. Logged-out RSS and the Arctic
+    mirror are left out: the mirror keeps removed posts, and logged-out RSS has not been checked."""
     return {sub.lower(): r['posts'] for sub, r in fetch.get('subreddits', {}).items()
             if r.get('channel') == 'browser' and len(r.get('posts') or []) >= MIN_LISTING}
 

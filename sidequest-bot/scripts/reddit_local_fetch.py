@@ -1,26 +1,23 @@
 #!/usr/bin/env python3
 """Fetch subreddit listings on the laptop for the SideQuest bots (GitHub runners get blocked by Reddit).
 
-Reddit answers every logged-out client on this machine with 403, so three channels are used:
-  browser  a real (non-headless) Chromium logged in through a copy of the "sidequestboard" profile cookies,
-           drawn on an invisible Xvfb screen so nothing shows on the desktop
-  rss      Reddit's public RSS feed
+Reddit answers every logged-out client on this machine with 403/429, and since 2026-11-04 every .json listing
+even when logged in ("blocked by network security"). Three channels, tried in this order per subreddit:
+  browser  the RSS feeds read through the logged-in pi-browser profile "reddit-scraper" (persistent Chromium on an
+           invisible Xvfb screen, human input, pacing) by reddit_browser_fetch.mjs, all subreddits up front
+  rss      Reddit's public RSS feed, logged out (usually rate limited after one request)
   arctic   the Arctic Shift mirror (what the GitHub bots use)
-Half the subreddits start with the browser and half with RSS, swapping every 2 h, so neither channel (nor the
-account) carries all the traffic. A subreddit that fails on one channel is tried on the next one.
 
 Usage: reddit_local_fetch.py --out FILE sub [sub ...]
 Writes {"generatedAt", "subreddits": {sub: {"channel", "posts"} | {"error"}}, "channels": {name: stats}}.
 """
-import argparse, html, json, os, random, re, select, shutil, signal, subprocess, sys, time
+import argparse, html, json, os, random, re, signal, subprocess, sys, time
 import urllib.error, urllib.parse, urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
-CHROMIUM = os.environ.get('REDDIT_CHROMIUM', '/snap/bin/chromium')
-SRC_DATA = os.path.expanduser(os.environ.get('REDDIT_CHROMIUM_USER_DATA', '~/snap/chromium/common/chromium'))
-PROFILE = os.environ.get('REDDIT_CHROMIUM_PROFILE', 'Profile 1')  # "sidequestboard", logged in to Reddit
-BOT_DIR = os.path.expanduser('~/snap/chromium/common/sqb-reddit-bot')  # snap Chromium can only read under ~/snap
+BROWSER_FETCH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'reddit_browser_fetch.mjs')
+BROWSER_WAIT = 660  # seconds; the fetcher stops itself after 540 (REDDIT_BROWSER_BUDGET_SEC) plus startup
 PIDFILE = '/tmp/sqb-reddit-bot.pids'
 UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 ATOM = '{http://www.w3.org/2005/Atom}'
@@ -78,7 +75,7 @@ def http_get(url, timeout, headers):
         with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=timeout) as r:
             return r.read()
     except urllib.error.HTTPError as e:
-        raise HttpError(e.code, e.read(400).decode('utf-8', 'replace'))
+        raise HttpError(e.code, e.read().decode('utf-8', 'replace'))  # whole page: the wall's text comes after its CSS
 
 
 class Channel:
@@ -106,83 +103,54 @@ class Arctic(Channel):
 
 
 class Browser(Channel):
-    name = 'browser'
+    """RSS through the logged-in pi-browser profile. reddit_browser_fetch.mjs reads every subreddit up front in one
+    paced browser session and stops by itself when Reddit says back off; fetch() only hands out its results."""
+    name, reddit = 'browser', False  # the pi-browser profile paces its own requests
 
     def __init__(self):
         super().__init__()
-        self.procs, self.pw, self.page = [], None, None
+        self.results, self.stopped = {}, None
 
-    def start(self):
+    def start(self, subs):
+        proc = None
         try:
-            shutil.rmtree(BOT_DIR, ignore_errors=True)
-            os.makedirs(os.path.join(BOT_DIR, PROFILE))
-            shutil.copy(os.path.join(SRC_DATA, 'Local State'), BOT_DIR)
-            for f in os.listdir(os.path.join(SRC_DATA, PROFILE)):
-                if f.startswith('Cookies'):
-                    shutil.copy(os.path.join(SRC_DATA, PROFILE, f), os.path.join(BOT_DIR, PROFILE, f))
-            r, w = os.pipe()
-            self.spawn(['Xvfb', '-displayfd', str(w), '-screen', '0', '1280x800x24', '-nolisten', 'tcp'], pass_fds=[w])
-            os.close(w)
-            display = os.read(r, 16).decode().strip() if select.select([r], [], [], 20)[0] else ''
-            os.close(r)
-            if not display:
-                raise RuntimeError('virtual screen (Xvfb) did not start')
-            uid = os.getuid()
-            env = dict(os.environ, DISPLAY=f':{display}')
-            env.setdefault('DBUS_SESSION_BUS_ADDRESS', f'unix:path=/run/user/{uid}/bus')  # keyring holds the cookie key
-            env.setdefault('XDG_RUNTIME_DIR', f'/run/user/{uid}')
-            self.spawn([CHROMIUM, f'--user-data-dir={BOT_DIR}', f'--profile-directory={PROFILE}', '--remote-debugging-port=0',
-                        '--no-first-run', '--no-default-browser-check', '--window-size=1280,800', 'about:blank'], env=env)
-            port_file, port = os.path.join(BOT_DIR, 'DevToolsActivePort'), ''
-            for _ in range(60):
-                if os.path.exists(port_file):
-                    port = open(port_file).read().split('\n')[0].strip()
-                    if port.isdigit():
-                        break
-                time.sleep(0.5)
-            if not port.isdigit():
-                raise RuntimeError('Chromium did not start')
-            from playwright.sync_api import sync_playwright
-            self.pw = sync_playwright().start()
-            ctx = self.pw.chromium.connect_over_cdp(f'http://127.0.0.1:{port}', timeout=30000).contexts[0]
-            if not any(c['name'] == 'reddit_session' for c in ctx.cookies('https://www.reddit.com')):
-                raise RuntimeError('not logged in to Reddit (sidequestboard profile signed out, or desktop keyring locked)')
-            self.page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            proc = subprocess.Popen(['node', '--no-warnings', BROWSER_FETCH, *subs], stdout=subprocess.PIPE, start_new_session=True)
+            with open(PIDFILE, 'w') as f:
+                f.write(str(proc.pid))
+            try:
+                out = proc.communicate(timeout=BROWSER_WAIT)[0]
+            except subprocess.TimeoutExpired:
+                kill_group(proc.pid, signal.SIGTERM)  # it prints what it has, then closes its browser
+                out = proc.communicate(timeout=30)[0]
+            lines = out.decode('utf-8', 'replace').strip().splitlines()
+            if not lines:
+                raise RuntimeError(f'reddit_browser_fetch.mjs exited with {proc.returncode} and no result')
+            d = json.loads(lines[-1])
+            if d.get('disabled'):
+                self.disabled = d['disabled']
+            else:
+                self.results, self.stopped = d['subs'], d.get('stopped')
         except Exception as e:
-            self.disabled = str(e)
-
-    def spawn(self, cmd, **kw):
-        self.procs.append(subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True, **kw))
-        with open(PIDFILE, 'w') as f:
-            f.write(' '.join(str(p.pid) for p in self.procs))
+            self.disabled = f'{type(e).__name__}: {e}'
+        finally:
+            if proc and proc.poll() is None:
+                kill_group(proc.pid, signal.SIGTERM)
+                try:
+                    proc.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    pass
+            if proc:
+                kill_group(proc.pid, signal.SIGKILL)  # whatever a crashed fetcher left behind (Xvfb, Chromium)
+            if os.path.exists(PIDFILE):
+                os.remove(PIDFILE)
 
     def fetch(self, sub):
-        resp = self.page.goto(f'https://www.reddit.com/r/{sub}/new.json?limit=100&raw_json=1', wait_until='domcontentloaded', timeout=30000)
-        status = resp.status if resp else 0
-        try:
-            body = resp.text() if resp else ''
-        except Exception:
-            body = self.page.inner_text('body')
-        if status != 200:
-            raise HttpError(status, body[:400])
-        return [from_json(c['data']) for c in json.loads(body)['data']['children'] if c.get('kind') == 't3']
-
-    def close(self):
-        try:
-            if self.pw:
-                self.pw.stop()
-        except Exception:
-            pass
-        for p in self.procs:
-            kill_group(p.pid, signal.SIGTERM)
-        for p in self.procs:
-            try:
-                p.wait(timeout=8)
-            except subprocess.TimeoutExpired:
-                kill_group(p.pid, signal.SIGKILL)
-        shutil.rmtree(BOT_DIR, ignore_errors=True)
-        if os.path.exists(PIDFILE):
-            os.remove(PIDFILE)
+        r = self.results.get(sub)
+        if r is None:
+            raise RuntimeError(self.stopped or 'not fetched')
+        if 'xml' not in r:
+            raise HttpError(r['status'], r['error']) if r.get('status') else RuntimeError(r['error'])
+        return parse_atom(r['xml'].encode())
 
 
 def kill_group(pid, sig):
@@ -193,27 +161,26 @@ def kill_group(pid, sig):
 
 
 def kill_leftovers():
-    """A killed earlier run can leave its Xvfb/Chromium behind. PIDs get reused, so only kill a process whose
-    cmdline proves it is ours (never the owner's own Chromium)."""
+    """A run killed outright can leave its browser fetcher (node, Xvfb, Chromium) behind, holding the profile.
+    PIDs get reused, so only kill the recorded process group when one of its processes is provably ours."""
     try:
-        pids = [int(p) for p in open(PIDFILE).read().split()]
-    except (OSError, ValueError):
+        pgid = int(open(PIDFILE).read().split()[0])
+    except (OSError, ValueError, IndexError):
         return
-    for pid in pids:
+    for pid in filter(str.isdigit, os.listdir('/proc')):
         try:
-            if re.search(rb'sqb-reddit-bot|Xvfb\x00-displayfd', open(f'/proc/{pid}/cmdline', 'rb').read()):
-                kill_group(pid, signal.SIGKILL)
+            if os.getpgid(int(pid)) == pgid and re.search(rb'reddit_browser_fetch|pi-profiles/reddit-scraper', open(f'/proc/{pid}/cmdline', 'rb').read()):
+                return kill_group(pgid, signal.SIGKILL)
         except OSError:
             pass
 
 
-def fetch_all(subs, channels, slot, pause=lambda: time.sleep(random.uniform(2, 4)), log=print):
-    """channels: {'browser', 'rss', 'arctic'} -> Channel. Returns {sub: {'channel', 'posts'} | {'error'}}."""
+def fetch_all(subs, channels, pause=lambda: time.sleep(random.uniform(2, 4)), log=print):
+    """channels: {'browser', 'rss', 'arctic'} -> Channel, tried in that order. Returns {sub: {'channel', 'posts'} | {'error'}}."""
     results = {}
-    for i, sub in enumerate(subs):
-        first, second = ('browser', 'rss') if (i + slot) % 2 == 0 else ('rss', 'browser')
+    for sub in subs:
         errors = []
-        for name in (first, second, 'arctic'):
+        for name in ('browser', 'rss', 'arctic'):
             ch = channels[name]
             if ch.disabled:
                 continue
@@ -250,16 +217,14 @@ def main():
     args = ap.parse_args()
     sys.stdout.reconfigure(line_buffering=True)  # cron log shows progress, and survives a kill by timeout
     subs = sorted({s.lower() for s in args.subreddits})
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))  # cron's timeout: still stop the browser fetcher (finally)
     kill_leftovers()
     browser = Browser()
-    browser.start()
+    browser.start(subs)
     channels = {'browser': browser, 'rss': Rss(), 'arctic': Arctic()}
     if browser.disabled:
         print(f'⚠️  browser channel off: {browser.disabled}')
-    try:
-        results = fetch_all(subs, channels, slot=int(time.time() // 7200))
-    finally:
-        browser.close()
+    results = fetch_all(subs, channels)
     stats = {n: {'ok': c.ok, 'failed': c.failed, 'disabled': c.disabled} for n, c in channels.items()}
     ok = sum(1 for r in results.values() if 'posts' in r)
     print(f'📥 {ok}/{len(subs)} subreddits fetched | ' + ' | '.join(f'{n}: {s["ok"]} ok, {s["failed"]} failed' + (f', OFF: {s["disabled"]}' if s['disabled'] else '') for n, s in stats.items()))
