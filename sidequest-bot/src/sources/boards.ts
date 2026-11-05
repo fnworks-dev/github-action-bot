@@ -379,7 +379,159 @@ const problogger: Board = {
     },
 };
 
+// --- Employer career pages: companies that keep hiring freelancers, read from their job-board software's public JSON.
+// This is how All Freelance Writing finds its gigs: on 2026-11-06, 16 of its 23 listings linked to an employer's own
+// Breezy, Lever, Greenhouse, Ashby or JazzHR page or website. Seeded with those employers; add more as [software, board, name].
+const CAREERS: [keyof typeof ATS, string, string][] = [
+    ['breezy', 'compose-ly', 'Compose.ly'],
+    ['breezy', 'quatrain-creative', 'Quatrain Creative'],
+    ['breezy', 'sciencebuzz', 'ScienceBuzz'],
+    ['greenhouse', 'straightarrownews', 'Straight Arrow News'],
+    ['lever', 'everlywell', 'Everlywell'],
+    ['ashby', 'intro', 'Intro'],
+]; // not ION Group (Lever 'ion'): 1.6 MB and over 60 s per read for 3 freelance roles out of 93
+const GIG_TYPE = /contract|freelance|part[- ]?time|temporary|service provider/i;
+
+interface Opening { id: string; url: string; title: string; type: string; place: string; postedAt: string | null; pay?: string | null; body?: string | null }
+
+const ATS = {
+    breezy: {
+        url: (board: string) => `https://${board}.breezy.hr/json`,
+        parse: (json: string): Opening[] => (JSON.parse(json) as {
+            id: string; name: string; url: string; published_date: string; salary?: string;
+            type?: { name: string }; location?: { name: string; is_remote: boolean };
+        }[]).map((j) => ({
+            id: j.id, url: j.url, title: j.name, type: j.type?.name ?? 'not stated', pay: j.salary, postedAt: j.published_date,
+            place: `${j.location?.name ?? ''}${j.location?.is_remote ? ', remote' : ''}`,
+        })),
+    },
+    lever: {
+        url: (board: string) => `https://api.lever.co/v0/postings/${board}?mode=json`,
+        parse: (json: string): Opening[] => (JSON.parse(json) as {
+            id: string; text: string; hostedUrl: string; createdAt: number; workplaceType?: string;
+            categories?: { commitment?: string; location?: string }; descriptionPlain?: string; additionalPlain?: string;
+            lists?: { text: string; content: string }[];
+        }[]).map((j) => ({
+            id: j.id, url: j.hostedUrl, title: j.text, type: j.categories?.commitment ?? 'not stated',
+            place: [j.categories?.location, j.workplaceType].filter(Boolean).join(', '), postedAt: new Date(j.createdAt).toISOString(),
+            body: [j.descriptionPlain, ...(j.lists ?? []).map((l) => `${l.text}\n${text(l.content)}`), j.additionalPlain].filter(Boolean).join('\n\n'),
+        })),
+    },
+    greenhouse: {
+        url: (board: string) => `https://boards-api.greenhouse.io/v1/boards/${board}/jobs?content=true`,
+        parse: (json: string): Opening[] => (JSON.parse(json) as {
+            jobs: { id: number; title: string; absolute_url: string; first_published?: string; updated_at: string; location?: { name: string }; content: string }[];
+        }).jobs.map((j) => ({
+            id: String(j.id), url: j.absolute_url, title: j.title, place: j.location?.name ?? '', postedAt: j.first_published ?? j.updated_at,
+            type: GIG_TYPE.test(j.title) ? 'freelance or contract (title)' : 'not stated', // no type field in this API
+            body: text(decode(j.content)), // the HTML comes entity-escaped
+        })),
+    },
+    ashby: {
+        url: (board: string) => `https://api.ashbyhq.com/posting-api/job-board/${board}?includeCompensation=true`,
+        parse: (json: string): Opening[] => (JSON.parse(json) as {
+            jobs: { id: string; title: string; jobUrl: string; employmentType: string; location: string; isRemote: boolean; publishedAt: string;
+                descriptionPlain?: string; compensation?: { compensationTierSummary?: string } }[];
+        }).jobs.map((j) => ({
+            id: j.id, url: j.jobUrl, title: j.title, type: j.employmentType, place: `${j.location}${j.isRemote ? ', remote' : ''}`,
+            postedAt: j.publishedAt, pay: j.compensation?.compensationTierSummary, body: j.descriptionPlain,
+        })),
+    },
+};
+
+/** Location is left to the scorer's board rules: these pages write it too many ways ("Remote US", "Sydney", "United States, remote"). */
+export function parseCareers(ats: keyof typeof ATS, board: string, company: string, json: string): BoardPost[] {
+    return ATS[ats].parse(json).map((o): BoardPost => ({
+        source: 'careers',
+        sourceId: `${ats}:${board}:${o.id}`,
+        sourceUrl: o.url,
+        title: o.title,
+        content: `${o.type}, ${o.place || 'location not given'}${o.pay ? `, ${o.pay}` : ''}\n\n${o.body ?? ''}`.trim(),
+        author: company,
+        subreddit: null,
+        postedAt: o.postedAt,
+        hint: [],
+        drop: GIG_TYPE.test(o.type) ? undefined : `job type ${o.type}`,
+    }));
+}
+
+const careers: Board = {
+    name: 'an employer career page',
+    async list() {
+        const posts: BoardPost[] = [];
+        const failed: string[] = [];
+        for (const [ats, board, company] of CAREERS) {
+            try {
+                posts.push(...parseCareers(ats, board, company, await get(ATS[ats].url(board), { Accept: 'application/json' })));
+            } catch (error) { // one slow or moved employer page must not hide the others (Lever took 60+ s on 2026-11-06)
+                failed.push(company);
+                console.error(`[boards]    ⚠️ careers ${company} (${ats} ${board}): ${error instanceof Error ? error.message : error}`);
+            }
+        }
+        if (failed.length === CAREERS.length) throw new Error('every employer page failed');
+        return posts;
+    },
+    async detail(post) { // only Breezy's list leaves out the description
+        if (!post.sourceUrl.includes('.breezy.hr/')) return {};
+        const body = (await get(post.sourceUrl)).match(/class="description">([\s\S]*?)<\/div>/)?.[1];
+        return body ? { content: `${head(post)}\n\n${text(body)}` } : {};
+    },
+};
+
+// --- Himalayas: an index of 100k+ remote jobs from company career pages, the wide net version of the list above.
+// Its API terms (https://himalayas.app/api) allow showing the jobs on our own site if: Apply uses applicationLink
+// unchanged, Himalayas is credited, jobs are not passed on (feeds, JobPosting markup), and closed jobs are removed.
+const HZ_QUERIES = ['writer', 'copywriter', 'editor', 'virtual assistant', 'executive assistant', 'video editor', 'voice', 'audio',
+    'composer', 'illustrator', 'graphic designer', 'animator', 'qa tester'];
+// Most contract listings there recruit AI raters and "experts" (2026-11-06: 9 of the 18 open to the US)
+const HZ_AI_VENDORS = /^(micro1|mercor|xperteez|innodata|welo global|outlier|dataannotation|alignerr|invisible|turing|telus|appen|scale ai|remotasks|toloka|prolific)\b/i;
+const HZ_AI_TITLES = /\b(ai trainer|ai tutor|annotat\w*|data label\w*|rater|search engine evaluator|bilingual expert)\b|expert, remote- contract/i;
+const US_OFFSETS = [-5, -6, -7, -8, -9, -10];
+
+interface HzJob {
+    guid: string; title: string; excerpt: string | null; description: string | null; companyName: string; employmentType: string;
+    minSalary: number | null; maxSalary: number | null; salaryPeriod: string | null; currency: string | null;
+    locationRestrictions?: string[] | null; timezoneRestrictions?: number[] | null; pubDate: number; expiryDate: number; applicationLink: string;
+}
+
+export function parseHimalayas(json: string): BoardPost[] {
+    return (JSON.parse(json) as { jobs: HzJob[] }).jobs.map((j): BoardPost => {
+        const places = j.locationRestrictions ?? [];
+        const zones = j.timezoneRestrictions ?? [];
+        const pay = j.minSalary || j.maxSalary
+            ? `${j.currency ?? ''} ${[...new Set([j.minSalary, j.maxSalary].filter(Boolean))].join('–')} ${j.salaryPeriod ?? 'annual'}`.trim() : 'pay not listed';
+        return {
+            source: 'himalayas',
+            sourceId: j.guid,
+            sourceUrl: j.applicationLink, // their terms: every Apply button uses it unchanged
+            title: j.title,
+            content: `${j.employmentType.toLowerCase()}, ${pay}, ${places.length ? places.join(', ') : 'worldwide'}\n\n${text(j.description || j.excerpt)}`,
+            author: j.companyName,
+            subreddit: null,
+            postedAt: new Date(j.pubDate * 1000).toISOString(), // "last updated"
+            hint: [],
+            drop: j.expiryDate * 1000 < Date.now() ? 'expired'
+                : places.length && !places.includes('United States') ? `location ${places.join(', ')}`
+                : zones.length && !zones.some((z) => US_OFFSETS.includes(z)) ? `time zones ${zones.join(', ')}`
+                : HZ_AI_VENDORS.test(j.companyName) || HZ_AI_TITLES.test(j.title) ? 'AI-training recruiting'
+                : undefined,
+        };
+    });
+}
+
+const himalayas: Board = {
+    name: 'Himalayas',
+    async list() {
+        const posts = new Map<string, BoardPost>(); // one job can match several queries
+        for (const q of HZ_QUERIES) {
+            const url = `https://himalayas.app/jobs/api/search?${new URLSearchParams({ q, employment_type: 'Contractor,Part Time,Temporary', sort: 'recent' })}`;
+            for (const post of parseHimalayas(await get(url, { Accept: 'application/json' }))) posts.set(post.sourceId, post);
+        }
+        return [...posts.values()];
+    },
+};
+
 /** In fetch order: the professions the board needs most first (voice, writer, VA, audio). */
 export const BOARDS: Record<Exclude<JobSource, 'reddit'>, Board> = {
-    castingcall, ytjobs, hubstaff, workwithindies, blenderartists, wordpressjobs, problogger,
+    castingcall, ytjobs, hubstaff, workwithindies, blenderartists, wordpressjobs, problogger, careers, himalayas,
 };

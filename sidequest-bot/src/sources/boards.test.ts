@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-    parseCastingCall, parseHubstaff, parseProblogger, parseWordpressJobs, parseWorkWithIndies, parseYtFeed, parseYtJob, text,
+    parseCareers, parseCastingCall, parseHimalayas, parseHubstaff, parseProblogger, parseWordpressJobs, parseWorkWithIndies, parseYtFeed, parseYtJob, text,
 } from './boards.js';
 
 // Trimmed copies of what each board answered on 2026-11-05.
@@ -104,4 +104,55 @@ test('jobs.wordpress.net and ProBlogger: staff roles and employee job types drop
 
 test('text() turns HTML into readable lines', () => {
     assert.equal(text('<p>Hi&nbsp;there</p><p>Pay: &#36;50 &ndash; flat</p><br>Done'), 'Hi there\nPay: $50 – flat\n\nDone');
+});
+
+test('career pages: each job-board software maps to one shape; only gig types are kept', () => {
+    const [reporter, staff] = parseCareers('lever', 'ion', 'ION Group', JSON.stringify([
+        { id: 'a1', text: 'Freelance Reporter', hostedUrl: 'https://jobs.lever.co/ion/a1', createdAt: Date.UTC(2026, 10, 4), workplaceType: 'remote',
+            categories: { commitment: 'Journalist Contractor', location: 'Remote US' }, descriptionPlain: 'Cover AI law.', lists: [{ text: 'You have', content: '<li>Bylines</li>' }] },
+        { id: 'a2', text: 'Tech Lead', hostedUrl: 'https://jobs.lever.co/ion/a2', createdAt: 0, categories: { commitment: 'Full-time' } },
+    ]));
+    assert.equal(reporter.sourceId, 'lever:ion:a1');
+    assert.equal(reporter.author, 'ION Group');
+    assert.equal(reporter.postedAt, '2026-11-04T00:00:00.000Z');
+    assert.equal(reporter.content, 'Journalist Contractor, Remote US, remote\n\nCover AI law.\n\nYou have\n- Bylines');
+    assert.equal(reporter.drop, undefined);
+    assert.equal(staff.drop, 'job type Full-time');
+
+    const [writer, engineer] = parseCareers('greenhouse', 'straightarrownews', 'Straight Arrow News', JSON.stringify({ jobs: [
+        { id: 1, title: 'Freelance Writer', absolute_url: 'https://g/1', updated_at: '2026-11-05T00:00:00Z', location: { name: 'Remote' }, content: '&lt;p&gt;Local stories&lt;/p&gt;' },
+        { id: 2, title: 'Software Engineer', absolute_url: 'https://g/2', updated_at: '2026-11-05T00:00:00Z', content: '' },
+    ] }));
+    assert.equal(writer.content, 'freelance or contract (title), Remote\n\nLocal stories');
+    assert.equal(engineer.drop, 'job type not stated');
+
+    const [partTime] = parseCareers('ashby', 'intro', 'Intro', JSON.stringify({ jobs: [{ id: 'x', title: 'Video Editor', jobUrl: 'https://a/x',
+        employmentType: 'PartTime', location: 'Los Angeles', isRemote: true, publishedAt: '2026-11-05T00:00:00Z', compensation: { compensationTierSummary: '$40/hr' } }] }));
+    assert.equal(partTime.content, 'PartTime, Los Angeles, remote, $40/hr');
+    assert.equal(partTime.drop, undefined);
+
+    const [contract] = parseCareers('breezy', 'compose-ly', 'Compose.ly', JSON.stringify([{ id: 'b', name: 'Technical Writer', url: 'https://compose-ly.breezy.hr/p/b',
+        published_date: '2026-10-28T00:00:00Z', type: { name: 'Contract' }, location: { name: 'United States', is_remote: true }, salary: '$30 – $40 / hour' }]));
+    assert.equal(contract.content, 'Contract, United States, remote, $30 – $40 / hour');
+});
+
+test('Himalayas: open to the US or worldwide, not AI-training recruiting, apply link unchanged', () => {
+    const job = (over: object) => ({
+        guid: 'https://himalayas.app/companies/collider/jobs/list-writer', title: 'Movie List Writer', excerpt: 'Write lists', description: '<p>Write <b>lists</b></p>',
+        companyName: 'Collider', employmentType: 'Contractor', minSalary: 35, maxSalary: 40, salaryPeriod: 'hourly', currency: 'USD',
+        locationRestrictions: [], timezoneRestrictions: [-8, -5], pubDate: 1793910128, expiryDate: 4102444800,
+        applicationLink: 'https://himalayas.app/companies/collider/jobs/list-writer?utm_source=x', ...over,
+    });
+    const [ok, india, asia, vendor, title, expired] = parseHimalayas(JSON.stringify({ jobs: [
+        job({}), job({ locationRestrictions: ['India', 'Mexico'] }), job({ timezoneRestrictions: [5, 8] }),
+        job({ companyName: 'micro1' }), job({ title: 'Audio Engineer - AI Trainer' }), job({ expiryDate: 1 }),
+    ] }));
+    assert.equal(ok.sourceUrl, 'https://himalayas.app/companies/collider/jobs/list-writer?utm_source=x');
+    assert.equal(ok.content, 'contractor, USD 35–40 hourly, worldwide\n\nWrite lists');
+    assert.equal(ok.drop, undefined);
+    assert.equal(india.drop, 'location India, Mexico');
+    assert.equal(asia.drop, 'time zones 5, 8');
+    assert.equal(vendor.drop, 'AI-training recruiting');
+    assert.equal(title.drop, 'AI-training recruiting');
+    assert.equal(expired.drop, 'expired');
 });

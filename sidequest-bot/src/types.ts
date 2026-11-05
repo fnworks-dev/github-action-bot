@@ -39,7 +39,9 @@ export type JobSource =
     | 'workwithindies'
     | 'blenderartists'
     | 'wordpressjobs'
-    | 'problogger';
+    | 'problogger'
+    | 'careers'
+    | 'himalayas';
 
 // Raw post from Reddit RSS/API or a job board
 export interface RawPost {
