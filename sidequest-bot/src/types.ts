@@ -30,9 +30,20 @@ export type SidequestRunStage =
     | 'RUN_COMPLETED'
     | 'FAILED';
 
-// Raw post from Reddit RSS/API
+// Where a job came from: Reddit, or one of the public job boards in sources/boards.ts
+export type JobSource =
+    | 'reddit'
+    | 'castingcall'
+    | 'ytjobs'
+    | 'hubstaff'
+    | 'workwithindies'
+    | 'blenderartists'
+    | 'wordpressjobs'
+    | 'problogger';
+
+// Raw post from Reddit RSS/API or a job board
 export interface RawPost {
-    source: 'reddit';
+    source: JobSource;
     sourceId: string;
     sourceUrl: string;
     title: string;
@@ -66,7 +77,7 @@ export interface IntentDetectionResult {
 // Job post stored in database
 export interface JobPost {
     id: string;
-    source: 'reddit';
+    source: JobSource;
     sourceId: string;
     sourceUrl: string;
     title: string;

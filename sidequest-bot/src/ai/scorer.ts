@@ -17,6 +17,7 @@ export interface JobScore {
     summary: string;
     analysis: JobAnalysis;
     score: number;       // 1-10
+    notSideQuest?: string | null; // job boards only: which of the owner's rules rules the post out
     matchScore: number;  // 0-100
     method: 'ai' | 'keyword';
     reason: string;
@@ -27,7 +28,7 @@ const VALID_PROFESSIONS: Profession[] = [
     'writer', 'audio', 'qa', 'virtual-assistant',
 ];
 
-const PROMPT = `You score Reddit posts for SideQuest Board, a board of PAID freelance gigs.
+const PROMPT = `You score {platform} posts for SideQuest Board, a board of PAID freelance gigs.
 
 Professions:
 - developer: software/web/app/game programming
@@ -39,7 +40,7 @@ Professions:
 - qa: testing, QA
 - virtual-assistant: admin, scheduling, data entry
 
-POST (r/{subreddit}):
+POST ({where}):
 Title: {title}
 Content: {content}
 
@@ -56,7 +57,7 @@ Decide:
    Scams score 1: handing over, renting or lending an account, identity or residency to the poster (Stripe/PayPal/bank, Upwork/LinkedIn/Reddit logins, "US person/partner" for a "simple online project", sign-up + KYC/verification tasks), paid fake engagement (scripted comments or reviews made to look genuine), proxy job interviews ("interview support"), promising to commission everyone who applies or overpay-and-refund setups, and generic work-from-home blasts (typing, retyping, data entry, translation) with no specific client or project.
    Posting supplied videos or slideshows on your own social accounts (clippers, UGC, TikTok posters) is not account rental: judge it as a normal gig.
    Art-specific: reward reference images, usage rights, size/count of pieces, realistic budget. Penalise "art trade", "portfolio piece", "free test piece", "AI art fix for cheap".
-3. match_score 0-100: overall rank value (roughly score*10, adjust within the band for detail quality).
+3. match_score 0-100: overall rank value (roughly score*10, adjust within the band for detail quality).{boardRules}
 
 Return ONLY JSON, no markdown:
 {"isJob":true,"professions":["artist"],"confidence":0.9,"score":7,"match_score":72,
@@ -68,6 +69,13 @@ Return ONLY JSON, no markdown:
 "budget_signal":"$60 per portrait" or null,
 "red_flags":[],"green_flags":[],
 "reason":"short why"}`;
+
+// Job boards list everything a company posts, so they get the owner's rules for what is a side quest
+// (job-fetcher docs/handoff-new-job-sources-2026-11-05.md section 1). The Reddit prompt stays as it was.
+// Asked as a named field: a weaker fallback model scored an AI-training recruiter 6/10 while its own reason said "recruiter".
+const BOARD_RULES = `
+4. This post comes from the job board {where}. It is NOT a side quest when it is: full-time or salaried employment (even remote); a recruiter, agency or staffing firm hiring for someone else; limited to people in one country other than the US, or on-site outside the US; recruiting people to train or evaluate AI (e.g. "bilingual expert $30-65/hr"); pay only after an unpaid trial; a sales role paid mainly by commission (appointment setters, closers, "uncapped commission"); paid research studies, surrogacy, crypto business development or exam-taking.
+   Add "not_side_quest" to the JSON: which of these applies, or null. If one applies, score 1.`;
 
 function clamp(n: unknown, lo: number, hi: number, fallback: number): number {
     const v = typeof n === 'number' ? n : Number(n);
@@ -115,6 +123,7 @@ export function parseScore(raw: string, post: RawPost): JobScore {
             green_flags: strList(p.green_flags),
         },
         score,
+        notSideQuest: nullableStr(p.not_side_quest),
         matchScore: clamp(p.match_score, 0, 100, score * 10),
         method: 'ai',
         reason: nullableStr(p.reason) || '',
@@ -151,10 +160,13 @@ export function keywordScore(post: RawPost): JobScore {
     };
 }
 
-export async function scoreJob(post: RawPost): Promise<JobScore> {
+/** board = the job board's display name for posts from sources/boards.ts; Reddit posts leave it out. */
+export async function scoreJob(post: RawPost, board?: string): Promise<JobScore> {
     if (hasAIProvider()) {
         const prompt = PROMPT
-            .replace('{subreddit}', post.subreddit || 'unknown')
+            .replace('{platform}', board ? 'job board' : 'Reddit')
+            .replace('{boardRules}', board ? BOARD_RULES : '')
+            .replaceAll('{where}', board || `r/${post.subreddit || 'unknown'}`)
             .replace('{title}', post.title)
             .replace('{content}', (post.content || '(no content)').slice(0, 6000));
         try {
