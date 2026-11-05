@@ -49,6 +49,7 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'VoiceActing',
             'recordthis',
             'voicework', // added 2026-10-11, keep if it yields ≥1 job per 48 h
+            'voiceover', // added 2026-11-06: 24 hiring posts in 30 days (job-fetcher docs/handoff-new-job-sources-2026-11-05.md)
             'gameDevClassifieds',
             'indiegames',
             'gamedev',
@@ -84,6 +85,7 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'HireaWriter', // added 2026-10-26 with the next two after a dry run: ~12 scored gigs/week, none already stored
             'freelancewriting',
             'ContentWritingJobs',
+            'scriptwriting', // added 2026-11-06: ~1 'request' post/day, the scorer drops the unpaid ones
         ],
     },
     audio: {

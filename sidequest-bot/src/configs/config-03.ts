@@ -64,6 +64,7 @@ export const professions: Record<Profession, ProfessionConfig> = {
             'audioengineering',
             'indiegames',
             'WeAreTheMusicMakers',
+            'filmscoring', // added 2026-11-06: ~0.2 paid posts/day, many are "[NOT PAID]" student films the scorer drops
             'gamedev',
         ],
     },
