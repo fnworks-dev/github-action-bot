@@ -58,7 +58,8 @@ async function main(subs) {
       return { disabled: classify(text) === 'blocked' ? 'HTTP 403 (blocked by Reddit at the home page)'
         : `not logged in to Reddit (no user menu; screenshot /tmp/sqb-reddit-home.png). Log in with: /browser-login ${PROFILE}` };
     }
-    for (const sub of subs) {
+    for (let i = 0, retried = null; i < subs.length; i++) {
+      const sub = subs[i];
       if (Date.now() - t0 > BUDGET_MS) { out.stopped = 'time budget used up'; break; }
       try {
         const url = `https://www.reddit.com/r/${sub}/new/.rss?limit=100`;
@@ -79,6 +80,8 @@ async function main(subs) {
         out.subs[sub] = { status: 0, error: msg.slice(0, 200) };
         console.error(`   browser r/${sub}: ${msg.slice(0, 200)}`);
         if (/hourly limit|quiet hours|pace gap|refusing to use profile|already open/.test(msg)) { out.stopped = msg; break; }
+        // An empty-body 5xx (ERR_HTTP_RESPONSE_CODE_FAILURE) comes and goes per feed: one more try, like the home page.
+        if (retried !== sub && /ERR_HTTP_RESPONSE_CODE_FAILURE/.test(msg)) { retried = sub; i--; await new Promise(r => setTimeout(r, 5000)); continue; }
       }
     }
     return out;
