@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 const CORE = process.env.PI_BROWSER_CORE || join(homedir(), '.pi/agent/extensions/browser/core.ts');
 const PROFILE = process.env.REDDIT_BROWSER_PROFILE || 'reddit-scraper';
 const BUDGET_MS = Number(process.env.REDDIT_BROWSER_BUDGET_SEC || 540) * 1000; // reddit_local_fetch.py waits 600 s
+const RETRY_MS = Number(process.env.REDDIT_BROWSER_RETRY_MS ?? 5000);
 
 // Reddit's walls are HTML pages, so judge the body rather than trusting a status code.
 export function classify(body) {
@@ -81,7 +82,7 @@ async function main(subs) {
         console.error(`   browser r/${sub}: ${msg.slice(0, 200)}`);
         if (/hourly limit|quiet hours|pace gap|refusing to use profile|already open/.test(msg)) { out.stopped = msg; break; }
         // An empty-body 5xx (ERR_HTTP_RESPONSE_CODE_FAILURE) comes and goes per feed: one more try, like the home page.
-        if (retried !== sub && /ERR_HTTP_RESPONSE_CODE_FAILURE/.test(msg)) { retried = sub; i--; await new Promise(r => setTimeout(r, 5000)); continue; }
+        if (retried !== sub && /ERR_HTTP_RESPONSE_CODE_FAILURE/.test(msg)) { retried = sub; i--; await new Promise(r => setTimeout(r, RETRY_MS)); continue; }
       }
     }
     return out;
