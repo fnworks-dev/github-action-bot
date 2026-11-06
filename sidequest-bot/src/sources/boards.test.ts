@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-    parseCareers, parseCastingCall, parseHimalayas, parseHubstaff, parseProblogger, parseWordpressJobs, parseWorkWithIndies, parseYtFeed, parseYtJob, text,
+    parseCareers, parseCastingCall, parseHimalayas, parseHubstaff, parseJobicy, parseProblogger, parseWeWorkRemotely, parseWordpressJobs, parseWorkWithIndies, parseYtFeed, parseYtJob, text,
 } from './boards.js';
 
 // Trimmed copies of what each board answered on 2026-11-05.
@@ -39,7 +39,8 @@ test('YT Jobs: feed gives id and time; full-time and non-editing roles drop', ()
     assert.equal(perProject.drop, undefined);
     assert.equal(perProject.content, 'per project, $400–$700, Josh (979K subscribers)\n\nEdit 2 videos a week');
     assert.equal(job('3', '1').drop, 'full-time');
-    assert.match(job('5', '6').drop ?? '', /^role area 6/);
+    assert.equal(job('5', '6').drop, undefined); // a channel manager may still be a VA gig: the AI decides
+    assert.deepEqual(job('5', '6').hint, []);
 });
 
 test('Hubstaff: cards come out of the escaped JS; full time drops; times are UTC', () => {
@@ -60,7 +61,7 @@ test('Hubstaff: cards come out of the escaped JS; full time drops; times are UTC
     assert.equal(fullTime.drop, 'full-time');
 });
 
-test('Work With Indies: keeps contract work open to US users with a profession we list', () => {
+test('Work With Indies: keeps contract work open to US users; the AI picks the profession when tags give none', () => {
     const item = (title: string, tags: string) => `<item><title>${title}</title><link>https://www.workwithindies.com/careers/${title.length}</link>`
         + `<description>Make things. Tags: ${tags}</description><pubDate>Wed, 04 Nov 2026 00:00:00 GMT</pubDate></item>`;
     const [ok, fullTime, design, copenhagen, eastern, graphic] = parseWorkWithIndies(`<rss>${[
@@ -76,7 +77,8 @@ test('Work With Indies: keeps contract work open to US users with a profession w
     assert.equal(ok.drop, undefined);
     assert.equal(ok.content, 'Art & Animation, Contract; work from Anywhere\n\nMake things.');
     assert.equal(fullTime.drop, 'full-time');
-    assert.match(design.drop ?? '', /no profession here/);
+    assert.equal(design.drop, undefined);
+    assert.deepEqual(design.hint, []);
     assert.equal(copenhagen.drop, 'location Copenhagen, DK');
     assert.equal(eastern.drop, undefined);
     assert.deepEqual(graphic.hint, ['artist']);
@@ -155,4 +157,46 @@ test('Himalayas: open to the US or worldwide, not AI-training recruiting, apply 
     assert.equal(vendor.drop, 'AI-training recruiting');
     assert.equal(title.drop, 'AI-training recruiting');
     assert.equal(expired.drop, 'expired');
+});
+
+test('Jobicy: gig types only, not AI-training recruiting; Apply stays on Jobicy; the cursor is passed on', () => {
+    const job = (over: object) => ({
+        id: 1, url: 'https://jobicy.com/jobs/1-grant-writer', jobTitle: 'Grant Writer', companyName: 'Code&#038;Path', jobIndustry: ['Content & Editorial'],
+        jobType: ['Contract'], jobGeo: 'USA', jobExcerpt: 'Write grants', jobDescription: '<p>Write <b>grants</b></p>', pubDate: '2026-11-04T10:00:00+00:00',
+        salaryMin: 40, salaryMax: 50, salaryCurrency: 'USD', salaryPeriod: 'hourly', ...over,
+    });
+    const { posts: [ok, fullTime, trainer, vendor], next } = parseJobicy(JSON.stringify({ nextCursor: 'abc', jobs: [
+        job({}), job({ jobType: ['Full-Time'] }), job({ jobTitle: 'AI Trainers Network - English (United States)' }), job({ companyName: 'Welo Global' }),
+    ] }));
+    assert.equal(next, 'abc');
+    assert.equal(ok.sourceUrl, 'https://jobicy.com/jobs/1-grant-writer');
+    assert.equal(ok.author, 'Code&Path');
+    assert.equal(ok.postedAt, '2026-11-04T10:00:00.000Z');
+    assert.equal(ok.content, 'Contract, USD 40–50 hourly, Content & Editorial, USA\n\nWrite grants');
+    assert.equal(ok.drop, undefined);
+    assert.equal(fullTime.drop, 'job type Full-Time');
+    assert.equal(trainer.drop, 'AI-training recruiting');
+    assert.equal(vendor.drop, 'AI-training recruiting');
+});
+
+test('We Work Remotely: contract posts open to the US; a country list overrides "Anywhere in the World"', () => {
+    const item = (title: string, type: string, region: string, country = '') => `<item><title>${title}</title><region>${region}</region>`
+        + `<country>${country}</country><category>Design</category><type>${type}</type>`
+        + '<description>&lt;p&gt;&lt;strong&gt;Headquarters:&lt;/strong&gt; Austin&lt;/p&gt;&lt;p&gt;Design &amp;amp; build&lt;/p&gt;</description>'
+        + `<pubDate>Thu, 05 Nov 2026 18:00:00 +0000</pubDate><link>https://weworkremotely.com/remote-jobs/${title.length}-x</link></item>`;
+    const [ok, fullTime, serbia, us] = parseWeWorkRemotely(`<rss>${[
+        item('Breakthrough Design Group: Senior Creative &amp; Web Designer', 'Contract', 'Anywhere in the World'),
+        item('Big Co: Engineer', 'Full-Time', 'Anywhere in the World'),
+        item('Wolt - English: Support Associate', 'Contract', 'Anywhere in the World', '🇷🇸 Serbia'),
+        item('Ninja Partners LLC: Customer Service Representative II', 'Contract', 'Texas', '🇺🇸 United States of America'),
+    ].join('')}</rss>`);
+    assert.equal(ok.title, 'Senior Creative & Web Designer');
+    assert.equal(ok.author, 'Breakthrough Design Group');
+    assert.equal(ok.sourceId, '61-x'); // the link's last segment
+    assert.equal(ok.postedAt, '2026-11-05T18:00:00.000Z');
+    assert.equal(ok.content, 'Contract, Design, Anywhere in the World\n\nHeadquarters: Austin\nDesign & build');
+    assert.equal(ok.drop, undefined);
+    assert.equal(fullTime.drop, 'job type Full-Time');
+    assert.equal(serbia.drop, 'location 🇷🇸 Serbia');
+    assert.equal(us.drop, undefined);
 });

@@ -41,7 +41,9 @@ export type JobSource =
     | 'wordpressjobs'
     | 'problogger'
     | 'careers'
-    | 'himalayas';
+    | 'himalayas'
+    | 'jobicy'
+    | 'weworkremotely';
 
 // Raw post from Reddit RSS/API or a job board
 export interface RawPost {

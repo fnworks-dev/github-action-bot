@@ -24,6 +24,8 @@ const UA = 'SideQuestBoard/1.0 (+https://sidequestboard.app)';
 // One request at a time across all boards, at least this far apart (Casting Call Club asks for 1 s).
 const GAP_MS = 1500;
 let lastRequest = 0;
+export const MAX_AGE_MS = 72 * 3_600_000; // boards keep posts open for weeks; older ones were seen before or are going stale
+const older = (post: BoardPost): boolean => !!post.postedAt && Date.now() - Date.parse(post.postedAt) > MAX_AGE_MS;
 
 async function get(url: string, headers: Record<string, string> = {}): Promise<string> {
     const wait = lastRequest + GAP_MS - Date.now();
@@ -174,10 +176,9 @@ export function parseYtJob(json: string, post: BoardPost): Partial<BoardPost> {
         title: j.jobTitle || post.title,
         author: j.company?.name ?? post.author,
         content: `${YT_TYPES[j.jobType] ?? 'job'}, ${pay}, ${channel}\n\n${text(j.htmlContent || j.description)}`,
-        hint: area ? [area] : [],
+        hint: area ? [area] : [], // other areas (channel manager, strategist, producer...): the AI decides
         drop: j.status !== 'active' ? `status ${j.status}`
             : j.jobType === '3' ? 'full-time'
-            : !area ? `role area ${j.functionalArea}: channel manager, strategist, producer or other`
             : j.locationType !== 'Remote' && country && country !== 'United States' ? `on-site in ${country}`
             : undefined,
     };
@@ -270,9 +271,8 @@ export function parseWorkWithIndies(xml: string): BoardPost[] {
             author: studio || null,
             subreddit: null,
             postedAt: iso(field(item, 'pubDate')),
-            hint,
+            hint, // empty (Design, Marketing & Community...): the AI decides
             drop: !tags.some((t) => /^(contract|freelance|part time)$/i.test(t)) ? 'full-time'
-                : !hint.length ? `field ${tags.join(', ')}: no profession here`
                 : !US_OR_ANYWHERE.test(place) ? `location ${place}`
                 : undefined,
         };
@@ -481,11 +481,16 @@ const careers: Board = {
 // --- Himalayas: an index of 100k+ remote jobs from company career pages, the wide net version of the list above.
 // Its API terms (https://himalayas.app/api) allow showing the jobs on our own site if: Apply uses applicationLink
 // unchanged, Himalayas is credited, jobs are not passed on (feeds, JobPosting markup), and closed jobs are removed.
-const HZ_QUERIES = ['writer', 'copywriter', 'editor', 'virtual assistant', 'executive assistant', 'video editor', 'voice', 'audio',
-    'composer', 'illustrator', 'graphic designer', 'animator', 'qa tester'];
-// Most contract listings there recruit AI raters and "experts" (2026-11-06: 9 of the 18 open to the US)
-const HZ_AI_VENDORS = /^(micro1|mercor|xperteez|innodata|welo global|outlier|dataannotation|alignerr|invisible|turing|telus|appen|scale ai|remotasks|toloka|prolific)\b/i;
-const HZ_AI_TITLES = /\b(ai trainer|ai tutor|annotat\w*|data label\w*|rater|search engine evaluator|bilingual expert)\b|expert, remote- contract/i;
+// Every profession we list; search reads the whole job text. 2026-11-06: ~145 US-open gig jobs in 72 h, ~35 requests a run.
+const HZ_QUERIES = [
+    'developer', 'software engineer', 'game', 'designer', 'illustrator', '3d', 'animator', 'artist', 'voice', 'video',
+    'writer', 'copywriter', 'editor', 'content', 'translator', 'audio', 'sound', 'music', 'composer', 'podcast',
+    'qa', 'tester', 'assistant', 'customer support', 'data entry', 'social media',
+];
+// The remote-job indexes are full of AI rater and "expert" recruiting (Himalayas 2026-11-06: 9 of the 18 contract jobs open to the US)
+const AI_VENDORS = /^(micro1|mercor|xperteez|innodata|welo global|imerit|outlier|dataannotation|alignerr|invisible|turing|telus|appen|scale ai|remotasks|toloka|prolific)\b/i;
+const AI_TITLES = /\b(ai train\w*|ai tutor|annotat\w*|data label\w*|rater|search engine evaluator|bilingual expert)\b|expert, remote- contract/i;
+const aiRecruiting = (company: string, title: string): boolean => AI_VENDORS.test(company) || AI_TITLES.test(title);
 const US_OFFSETS = [-5, -6, -7, -8, -9, -10];
 
 interface HzJob {
@@ -513,7 +518,7 @@ export function parseHimalayas(json: string): BoardPost[] {
             drop: j.expiryDate * 1000 < Date.now() ? 'expired'
                 : places.length && !places.includes('United States') ? `location ${places.join(', ')}`
                 : zones.length && !zones.some((z) => US_OFFSETS.includes(z)) ? `time zones ${zones.join(', ')}`
-                : HZ_AI_VENDORS.test(j.companyName) || HZ_AI_TITLES.test(j.title) ? 'AI-training recruiting'
+                : aiRecruiting(j.companyName, j.title) ? 'AI-training recruiting'
                 : undefined,
         };
     });
@@ -524,14 +529,107 @@ const himalayas: Board = {
     async list() {
         const posts = new Map<string, BoardPost>(); // one job can match several queries
         for (const q of HZ_QUERIES) {
-            const url = `https://himalayas.app/jobs/api/search?${new URLSearchParams({ q, employment_type: 'Contractor,Part Time,Temporary', sort: 'recent' })}`;
-            for (const post of parseHimalayas(await get(url, { Accept: 'application/json' }))) posts.set(post.sourceId, post);
+            for (let page = 1; page <= 3; page++) { // country=US includes worldwide jobs
+                const params = { q, employment_type: 'Contractor,Part Time,Temporary', country: 'US', sort: 'recent', page: String(page) };
+                const batch = parseHimalayas(await get(`https://himalayas.app/jobs/api/search?${new URLSearchParams(params)}`, { Accept: 'application/json' }));
+                batch.forEach((post) => posts.set(post.sourceId, post));
+                if (batch.length < 20 || batch.some(older)) break; // mostly newest first: the next page is older still
+            }
         }
         return [...posts.values()];
     },
 };
 
+// --- Jobicy: remote jobs, newest first over 7 days. Its API page (https://jobicy.com/jobs-rss-feed) allows job boards and
+// subscription apps without asking: credit Jobicy and keep its job page as the Apply link. geo=usa includes "Anywhere".
+interface JobicyJob {
+    id: number; url: string; jobTitle: string; companyName: string; jobIndustry: string[]; jobType: string[]; jobGeo: string;
+    jobExcerpt: string | null; jobDescription: string | null; pubDate: string;
+    salaryMin?: number; salaryMax?: number; salaryCurrency?: string; salaryPeriod?: string;
+}
+
+export function parseJobicy(json: string): { posts: BoardPost[]; next: string | null } {
+    const data = JSON.parse(json) as { jobs: JobicyJob[]; nextCursor: string | null };
+    return {
+        next: data.nextCursor,
+        posts: data.jobs.map((j): BoardPost => {
+            const type = j.jobType.join(', ') || 'not stated';
+            const title = decode(j.jobTitle);
+            const company = decode(j.companyName);
+            const pay = j.salaryMin || j.salaryMax
+                ? `${j.salaryCurrency ?? ''} ${[...new Set([j.salaryMin, j.salaryMax].filter(Boolean))].join('–')} ${j.salaryPeriod ?? ''}`.trim() : 'pay not listed';
+            return {
+                source: 'jobicy',
+                sourceId: String(j.id),
+                sourceUrl: j.url, // their terms: Apply goes to the Jobicy job page
+                title,
+                content: `${type}, ${pay}, ${j.jobIndustry.join(', ')}, ${j.jobGeo}\n\n${text(j.jobDescription || j.jobExcerpt)}`,
+                author: company,
+                subreddit: null,
+                postedAt: iso(j.pubDate),
+                hint: [],
+                drop: !GIG_TYPE.test(type) ? `job type ${type}` : aiRecruiting(company, title) ? 'AI-training recruiting' : undefined,
+            };
+        }),
+    };
+}
+
+const jobicy: Board = {
+    name: 'Jobicy',
+    async list() {
+        const posts: BoardPost[] = [];
+        let cursor: string | null = null;
+        for (let page = 0; page < 6; page++) { // 100 US-open jobs were ~15 h on 2026-11-06, so 72 h is ~5 pages
+            const params = new URLSearchParams({ count: '100', geo: 'usa', ...(cursor ? { cursor } : {}) });
+            const { posts: batch, next } = parseJobicy(await get(`https://jobicy.com/api/jobs?${params}`, { Accept: 'application/json' }));
+            posts.push(...batch);
+            cursor = next;
+            if (!cursor || !batch.length || older(batch[batch.length - 1])) break;
+        }
+        return posts;
+    },
+};
+
+// --- We Work Remotely: one RSS feed per category, full text included. Its RSS page: "Anyone can use the feed, all we ask is
+// that you attribute the links back to We Work Remotely." Mostly full-time: 10 of ~140 posts a week were contract (2026-11-06).
+const WWR_FEEDS = ['design', 'full-stack-programming', 'front-end-programming', 'back-end-programming', 'devops-sysadmin',
+    'customer-support', 'sales-and-marketing', 'product', 'management-and-finance'].map((c) => `remote-${c}-jobs`).concat('all-other-remote-jobs');
+
+export function parseWeWorkRemotely(xml: string): BoardPost[] {
+    return rssItems(xml).map((item): BoardPost => {
+        const [company, ...role] = field(item, 'title').split(':');
+        const title = role.join(':').trim() || company.trim();
+        const type = field(item, 'type');
+        const where = field(item, 'country') || field(item, 'region'); // a country list overrides "Anywhere in the World"
+        const url = field(item, 'link');
+        return {
+            source: 'weworkremotely',
+            sourceId: url.split('/').pop() || url,
+            sourceUrl: url,
+            title,
+            content: `${type || 'type not stated'}, ${field(item, 'category')}, ${where}\n\n${text(field(item, 'description'))}`,
+            author: role.length ? company.trim() : null,
+            subreddit: null,
+            postedAt: iso(field(item, 'pubDate')),
+            hint: [],
+            drop: !GIG_TYPE.test(type) ? `job type ${type || 'not stated'}`
+                : !US_OR_ANYWHERE.test(where) ? `location ${where}`
+                : aiRecruiting(company, title) ? 'AI-training recruiting'
+                : undefined,
+        };
+    });
+}
+
+const weworkremotely: Board = {
+    name: 'We Work Remotely',
+    async list() {
+        const posts: BoardPost[] = [];
+        for (const feed of WWR_FEEDS) posts.push(...parseWeWorkRemotely(await get(`https://weworkremotely.com/categories/${feed}.rss`)));
+        return posts;
+    },
+};
+
 /** In fetch order: the professions the board needs most first (voice, writer, VA, audio). */
 export const BOARDS: Record<Exclude<JobSource, 'reddit'>, Board> = {
-    castingcall, ytjobs, hubstaff, workwithindies, blenderartists, wordpressjobs, problogger, careers, himalayas,
+    castingcall, ytjobs, hubstaff, workwithindies, blenderartists, wordpressjobs, problogger, careers, himalayas, jobicy, weworkremotely,
 };

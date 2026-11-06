@@ -14,12 +14,11 @@ import { scoreJob } from './ai/scorer.js';
 import { duplicateKeys } from './dedupe.js';
 import { isNsfwContent } from './filters.js';
 import { initDb, insertJob, jobExists, recentJobKeys } from './db/turso.js';
-import { BOARDS, type BoardPost } from './sources/boards.js';
+import { BOARDS, MAX_AGE_MS, type BoardPost } from './sources/boards.js';
 
 const LOG = process.env.BOARDS_LOG || 'boards-log.jsonl';
 const LIVE = new Set((process.env.BOARDS_LIVE || '').split(',').map((s) => s.trim()).filter(Boolean));
 const MIN_SCORE = 4; // same bar as Reddit, X and Discord
-const MAX_AGE_MS = 72 * 3_600_000; // boards keep posts open for weeks; older ones were seen before or are going stale
 // Unambiguous scam and noise wording from the 2026-11-05 research; the scorer's board rules catch the rest.
 // Not "AI training" ("No AI training or voice cloning" is a normal casting line) or "appointment setting" (a VA task).
 const SCAM = /uncapped commission|commission[- ]only|bilingual expert|paid after (a |the )?\d+[- ]day trial|surroga(te|cy)|payment tester/i;
