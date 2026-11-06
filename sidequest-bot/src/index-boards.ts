@@ -13,8 +13,8 @@ import { appendFileSync, existsSync, readFileSync } from 'fs';
 import { scoreJob } from './ai/scorer.js';
 import { duplicateKeys } from './dedupe.js';
 import { isNsfwContent } from './filters.js';
-import { initDb, insertJob, jobExists, recentJobKeys } from './db/turso.js';
-import { BOARDS, MAX_AGE_MS, type BoardPost } from './sources/boards.js';
+import { initDb, insertJob, jobExists, markRemoved, recentJobKeys, shownJobs } from './db/turso.js';
+import { BOARDS, MAX_AGE_MS, himalayasClosed, iso, type BoardPost } from './sources/boards.js';
 
 const LOG = process.env.BOARDS_LOG || 'boards-log.jsonl';
 const LIVE = new Set((process.env.BOARDS_LIVE || '').split(',').map((s) => s.trim()).filter(Boolean));
@@ -49,12 +49,42 @@ const age = (post: BoardPost): number => (post.postedAt ? Date.now() - Date.pars
 // The board keeps the full text; we keep the start of it and link to the original (handoff section 7.4).
 const clip = (s: string | null, n = 1000): string | null => (s && s.length > n ? `${s.slice(0, n).trimEnd()}…` : s);
 
+// Himalayas' terms: remove jobs once they close (they can close before expiryDate). Every run checks every row still shown.
+// ponytail: one request per row, 1.5 s apart; ~400 rows (30 days at ~13 a day) is ~10 min of the 20 min run limit.
+// Past that, check part of the rows per run, or use their free API key.
+async function sweepHimalayas(): Promise<void> {
+    const rows = await shownJobs('himalayas');
+    const closed: string[] = [];
+    let unanswered = 0;
+    for (const row of rows) {
+        try {
+            if (await himalayasClosed(row.sourceId)) closed.push(row.id);
+        } catch (error) {
+            unanswered++;
+            console.error(`[boards]    ⚠️ himalayas sweep ${row.sourceId}: ${error instanceof Error ? error.message : error}`);
+        }
+    }
+    // Every job closed at once is more likely their API changing than real closures: hide nothing, alert.
+    if (closed.length >= 5 && closed.length === rows.length) throw new Error(`all ${rows.length} Himalayas jobs read as closed; nothing hidden`);
+    for (const id of closed) await markRemoved(id);
+    console.log(`[boards] himalayas sweep: ${rows.length} shown, ${closed.length} closed and removed, ${unanswered} unanswered`);
+    if (rows.length && unanswered === rows.length) throw new Error('no Himalayas job answered');
+}
+
 async function run(): Promise<void> {
     const unknown = [...LIVE].filter((s) => !(s in BOARDS));
     if (unknown.length) throw new Error(`BOARDS_LIVE has unknown boards: ${unknown.join(', ')} (known: ${Object.keys(BOARDS).join(', ')})`);
     if (LIVE.size) await initDb();
     const seen = new Set(readLog().map((e) => `${e.source}:${e.id}`));
     const failed: string[] = [];
+    if (LIVE.size) {
+        try {
+            await sweepHimalayas();
+        } catch (error) {
+            failed.push('himalayas sweep');
+            console.error(`[boards] ❌ himalayas sweep: ${error instanceof Error ? error.message : error}`);
+        }
+    }
 
     for (const [source, board] of Object.entries(BOARDS)) {
         const live = LIVE.has(source);
@@ -90,6 +120,7 @@ async function run(): Promise<void> {
                     continue;
                 }
             }
+            post = { ...post, postedAt: iso(post.postedAt) }; // boards give offsets, other formats or nothing
             const scam = `${post.title}\n${post.content ?? ''}`.match(SCAM)?.[0];
             const drop = post.drop
                 || (age(post) > MAX_AGE_MS && 'older than 72 h')

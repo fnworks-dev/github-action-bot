@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-    parseCareers, parseCastingCall, parseHimalayas, parseHubstaff, parseJobicy, parseProblogger, parseWeWorkRemotely, parseWordpressJobs, parseWorkWithIndies, parseYtFeed, parseYtJob, text,
+    himalayasClosed, iso, parseCareers, parseCastingCall, parseHimalayas, parseHubstaff, parseJobicy, parseProblogger, parseWeWorkRemotely, parseWordpressJobs, parseWorkWithIndies, parseYtFeed, parseYtJob, text,
 } from './boards.js';
 
 // Trimmed copies of what each board answered on 2026-11-05.
@@ -199,4 +199,29 @@ test('We Work Remotely: contract posts open to the US; a country list overrides 
     assert.equal(fullTime.drop, 'job type Full-Time');
     assert.equal(serbia.drop, 'location 🇷🇸 Serbia');
     assert.equal(us.drop, undefined);
+});
+
+test('posted dates: one UTC format for every board, null when there is none', () => {
+    assert.equal(iso('2026-11-04T10:00:00-04:00'), '2026-11-04T14:00:00.000Z'); // Greenhouse
+    assert.equal(iso('2026-11-05T14:37:28.025Z'), '2026-11-05T14:37:28.025Z');
+    assert.equal(iso('Thu, 05 Nov 2026 10:00:00 +0000'), '2026-11-05T10:00:00.000Z');
+    assert.equal(iso(null), null);
+    assert.equal(iso('Oct, 29 at noon-ish'), null);
+});
+
+test('Himalayas sweep: 410 and 404 are closed, 200 is open, anything else is no answer', async () => {
+    const real = globalThis.fetch;
+    const asked: string[] = [];
+    try {
+        for (const [status, closed] of [[410, true], [404, true], [200, false], [503, null]] as const) {
+            globalThis.fetch = (async (url: string) => { asked.push(url); return new Response('{}', { status }); }) as typeof fetch;
+            const job = 'https://himalayas.app/companies/comic-book-resources-cbr/jobs/movieweb-news-writer-film-and-tv';
+            if (closed === null) await assert.rejects(himalayasClosed(job), /HTTP 503/);
+            else assert.equal(await himalayasClosed(job), closed);
+        }
+    } finally {
+        globalThis.fetch = real;
+    }
+    assert.equal(asked[0], 'https://himalayas.app/jobs/api/companies/comic-book-resources-cbr/jobs/movieweb-news-writer-film-and-tv');
+    await assert.rejects(himalayasClosed('https://example.com/jobs/1'), /not a Himalayas job URL/);
 });

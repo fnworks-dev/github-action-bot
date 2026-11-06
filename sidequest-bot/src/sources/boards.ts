@@ -33,7 +33,7 @@ async function get(url: string, headers: Record<string, string> = {}): Promise<s
     try {
         // Blender Artists' category JSON sometimes takes over 30 s
         const res = await fetch(url, { headers: { 'User-Agent': UA, ...headers }, signal: AbortSignal.timeout(60_000) });
-        if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+        if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status} for ${url}`), { status: res.status });
         return await res.text();
     } finally {
         lastRequest = Date.now();
@@ -67,8 +67,9 @@ export function text(html: string | null | undefined): string {
         .trim();
 }
 
-const iso = (s: string): string | null => {
-    const t = Date.parse(s);
+/** Any date string to the one format the dashboard sorts as text (`2026-11-04T14:00:00.000Z`); no or bad date -> null. */
+export const iso = (s: string | null | undefined): string | null => {
+    const t = s ? Date.parse(s) : NaN;
     return Number.isNaN(t) ? null : new Date(t).toISOString();
 };
 
@@ -628,6 +629,19 @@ const weworkremotely: Board = {
         return posts;
     },
 };
+
+/** Himalayas' terms: closed jobs come off our board. Its job API answers 410 when closed, 404 when gone, 200 when open. */
+export async function himalayasClosed(jobUrl: string): Promise<boolean> {
+    const path = jobUrl.match(/^https:\/\/himalayas\.app\/companies\/([^/]+)\/jobs\/([^/?#]+)$/); // our source_id (the job's guid)
+    if (!path) throw new Error(`not a Himalayas job URL: ${jobUrl}`);
+    try {
+        await get(`https://himalayas.app/jobs/api/companies/${path[1]}/jobs/${path[2]}`, { Accept: 'application/json' });
+        return false;
+    } catch (error) {
+        if ([404, 410].includes((error as { status?: number }).status ?? 0)) return true;
+        throw error;
+    }
+}
 
 /** In fetch order: the professions the board needs most first (voice, writer, VA, audio). */
 export const BOARDS: Record<Exclude<JobSource, 'reddit'>, Board> = {

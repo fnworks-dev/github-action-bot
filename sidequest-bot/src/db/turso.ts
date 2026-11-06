@@ -522,6 +522,20 @@ export const OLD_UNUSED_POSTS = `created_at < ?
     AND NOT EXISTS (SELECT 1 FROM user_saved_jobs s WHERE s.job_post_id = job_posts.id)
     AND NOT EXISTS (SELECT 1 FROM reply_cache r WHERE r.job_post_id = job_posts.id)`;
 
+/** Rows of a source the dashboard still shows (it hides status 'removed'), any age: saved rows outlive the 30-day cleanup. */
+export async function shownJobs(source: string): Promise<{ id: string; sourceId: string }[]> {
+    const result = await getDb().execute({
+        sql: "SELECT id, source_id FROM job_posts WHERE source = ? AND COALESCE(status, '') != 'removed'",
+        args: [source],
+    });
+    return result.rows.map((row) => ({ id: row.id as string, sourceId: row.source_id as string }));
+}
+
+/** 'removed' takes a card off the dashboard's feed, paywall, emails and alerts (as scripts/reddit_liveness.py does). */
+export async function markRemoved(id: string): Promise<void> {
+    await getDb().execute({ sql: "UPDATE job_posts SET status = 'removed', updated_at = CURRENT_TIMESTAMP WHERE id = ?", args: [id] });
+}
+
 // Delete old posts (30-day cleanup)
 export async function deleteOldPosts(): Promise<number> {
     return retryWithBackoff(
