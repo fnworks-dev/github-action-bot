@@ -74,8 +74,27 @@ Return ONLY JSON, no markdown:
 // (job-fetcher docs/handoff-new-job-sources-2026-11-05.md section 1). The Reddit prompt stays as it was.
 // Asked as a named field: a weaker fallback model scored an AI-training recruiter 6/10 while its own reason said "recruiter".
 const BOARD_RULES = `
-4. This post comes from the job board {where}. It is NOT a side quest when it is: full-time or salaried employment (even remote); a recruiter, agency or staffing firm hiring for someone else; limited to people in one country other than the US, or on-site outside the US; recruiting people to train or evaluate AI (e.g. "bilingual expert $30-65/hr"); pay only after an unpaid trial; a sales role paid mainly by commission (appointment setters, closers, "uncapped commission"); paid research studies, surrogacy, crypto business development or exam-taking.
-   Add "not_side_quest" to the JSON: which of these applies, or null. If one applies, score 1.`;
+4. This post comes from the job board {where}, where companies list every kind of job. Decide if it is a side quest:
+   paid work a freelancer can take next to other work, done for the company that posts it, in one of the professions above.
+   IS a side quest, even at a big company, ongoing, or called "contract": freelance, independent contractor (1099),
+   per-project or fixed-fee work, or hourly work under about 30 hours a week. "Pay not listed" alone is fine.
+   An agency or studio hiring freelancers for its own client work (content sites, design agencies, translation agencies building a
+   pool of freelance translators) is NOT a staffing firm. Translation, editing and eLearning or instructional writing count as writer.
+   NOT a side quest (name the first that applies):
+   - "full-time": full-time, 30-40+ hours a week, an annual salary, a full-time contract (e.g. 6 months at 40 h/week),
+     or a fixed-length contract ("12+ months", "24 months") that states no part-time hours;
+   - "employee": the post itself says this role is W-2, on payroll, an employee, or gets benefits (shifts: call centers, nurses,
+     faculty, student workers, seasonal or temp staff). Benefits offered only to full-time staff don't count;
+   - "staffing": a staffing firm, consultancy or recruiter placing someone with its client ("our client is seeking", a client
+     name, W2/C2C, visa terms, "contingent on contract award");
+   - "outside professions": business roles the professions above don't cover: marketing, SEO, sales, strategy, operations, management or leadership,
+     legal or paralegal, finance, HR, recruiting, medical or clinical, teaching, tutoring or mentoring, logistics, customer support management,
+     and lead, architect or principal roles that run a team or a client's systems;
+   - "AI training": training or evaluating AI (e.g. "bilingual expert $30-65/hr");
+   - "location": limited to people in one country other than the US, or on-site outside the US;
+   - "commission": paid mainly by commission; "unpaid trial": pay only after an unpaid trial; "under $10/hour";
+   - "other": paid research studies, surrogacy, crypto business development or exam-taking.
+   Add "not_side_quest" to the JSON: the quoted label that applies, or null. If one applies, score 1.`;
 
 function clamp(n: unknown, lo: number, hi: number, fallback: number): number {
     const v = typeof n === 'number' ? n : Number(n);
