@@ -81,7 +81,8 @@ async function run(): Promise<void> {
     const unknown = [...LIVE].filter((s) => !(s in BOARDS));
     if (unknown.length) throw new Error(`BOARDS_LIVE has unknown boards: ${unknown.join(', ')} (known: ${Object.keys(BOARDS).join(', ')})`);
     if (LIVE.size) await initDb();
-    const seen = new Set(readLog().map((e) => `${e.source}:${e.id}`));
+    // A dry-run accept isn't seen once its board is live: it gets scored again and stored (if it's still under 72 h)
+    const seen = new Set(readLog().filter((e) => !(e.decision === 'accept' && LIVE.has(e.source))).map((e) => `${e.source}:${e.id}`));
     const failed: string[] = [];
 
     for (const [source, board] of Object.entries(BOARDS)) {
@@ -169,12 +170,13 @@ function report(): void {
     const entries = readLog();
     const now = Date.now();
     for (const source of Object.keys(BOARDS)) {
-        const mine = entries.filter((e) => e.source === source);
-        if (!mine.length) {
+        const all = entries.filter((e) => e.source === source);
+        if (!all.length) {
             console.log(`\n${source}: nothing logged yet`);
             continue;
         }
-        const since = Date.parse(mine[0].at);
+        const since = Date.parse(all[0].at);
+        const mine = [...new Map(all.map((e) => [e.id, e])).values()]; // a post's latest decision (a dry-run accept is redone live)
         const elapsed = (now - since) / 86_400_000;
         const days = Math.max(elapsed, 1); // under a day, a single gig would read as many per day
         const gigs = mine.filter((e) => e.decision === 'accept' || e.decision === 'insert');
