@@ -522,10 +522,11 @@ export const OLD_UNUSED_POSTS = `created_at < ?
     AND NOT EXISTS (SELECT 1 FROM user_saved_jobs s WHERE s.job_post_id = job_posts.id)
     AND NOT EXISTS (SELECT 1 FROM reply_cache r WHERE r.job_post_id = job_posts.id)`;
 
-/** Rows of a source the dashboard still shows (it hides status 'removed'), any age: saved rows outlive the 30-day cleanup. */
+/** Rows of a source the dashboard still shows (it hides status 'removed'), any age (saved rows outlive the 30-day cleanup),
+ * in random order so a check that runs out of time reaches different rows next run. */
 export async function shownJobs(source: string): Promise<{ id: string; sourceId: string }[]> {
     const result = await getDb().execute({
-        sql: "SELECT id, source_id FROM job_posts WHERE source = ? AND COALESCE(status, '') != 'removed'",
+        sql: "SELECT id, source_id FROM job_posts WHERE source = ? AND COALESCE(status, '') != 'removed' ORDER BY RANDOM()",
         args: [source],
     });
     return result.rows.map((row) => ({ id: row.id as string, sourceId: row.source_id as string }));

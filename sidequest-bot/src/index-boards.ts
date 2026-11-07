@@ -49,14 +49,20 @@ const age = (post: BoardPost): number => (post.postedAt ? Date.now() - Date.pars
 // The board keeps the full text; we keep the start of it and link to the original (handoff section 7.4).
 const clip = (s: string | null, n = 1000): string | null => (s && s.length > n ? `${s.slice(0, n).trimEnd()}…` : s);
 
-// Himalayas' terms: remove jobs once they close (they can close before expiryDate). Every run checks every row still shown.
-// ponytail: one request per row, 1.5 s apart; ~400 rows (30 days at ~13 a day) is ~10 min of the 20 min run limit.
-// Past that, check part of the rows per run, or use their free API key.
+// The wrapper kills the run at 20 min (run_boards_scraper.sh, timeout 1200): the sweep stops checking at 16 min.
+const SWEEP_UNTIL = Date.now() + 16 * 60_000;
+
+// Himalayas' terms: remove jobs once they close (they can close before expiryDate). Runs after the boards so it can't
+// starve them, checks rows in random order until SWEEP_UNTIL (one request each, 1.5 s apart: ~600 rows after 30 days
+// at ~20 a day is ~15 min), so every row still gets checked every few runs once there are more than one run can do.
 async function sweepHimalayas(): Promise<void> {
     const rows = await shownJobs('himalayas');
     const closed: string[] = [];
+    let checked = 0;
     let unanswered = 0;
     for (const row of rows) {
+        if (Date.now() > SWEEP_UNTIL) break;
+        checked++;
         try {
             if (await himalayasClosed(row.sourceId)) closed.push(row.id);
         } catch (error) {
@@ -65,10 +71,10 @@ async function sweepHimalayas(): Promise<void> {
         }
     }
     // Every job closed at once is more likely their API changing than real closures: hide nothing, alert.
-    if (closed.length >= 5 && closed.length === rows.length) throw new Error(`all ${rows.length} Himalayas jobs read as closed; nothing hidden`);
+    if (closed.length >= 5 && closed.length === checked) throw new Error(`all ${checked} Himalayas jobs checked read as closed; nothing hidden`);
     for (const id of closed) await markRemoved(id);
-    console.log(`[boards] himalayas sweep: ${rows.length} shown, ${closed.length} closed and removed, ${unanswered} unanswered`);
-    if (rows.length && unanswered === rows.length) throw new Error('no Himalayas job answered');
+    console.log(`[boards] himalayas sweep: ${rows.length} shown, ${checked} checked, ${closed.length} closed and removed, ${unanswered} unanswered`);
+    if (checked && unanswered === checked) throw new Error('no Himalayas job answered');
 }
 
 async function run(): Promise<void> {
@@ -77,14 +83,6 @@ async function run(): Promise<void> {
     if (LIVE.size) await initDb();
     const seen = new Set(readLog().map((e) => `${e.source}:${e.id}`));
     const failed: string[] = [];
-    if (LIVE.size) {
-        try {
-            await sweepHimalayas();
-        } catch (error) {
-            failed.push('himalayas sweep');
-            console.error(`[boards] ❌ himalayas sweep: ${error instanceof Error ? error.message : error}`);
-        }
-    }
 
     for (const [source, board] of Object.entries(BOARDS)) {
         const live = LIVE.has(source);
@@ -155,6 +153,14 @@ async function run(): Promise<void> {
         }
         console.log(`[boards] ${source}${live ? '' : ' (dry run)'}: ${posts.length} listed, ${counts.drop} dropped, `
             + `${counts.reject} rejected by the AI, ${counts.insert + counts.accept} ${live ? 'stored' : 'would be stored'}`);
+    }
+    if (LIVE.size) {
+        try {
+            await sweepHimalayas();
+        } catch (error) {
+            failed.push('himalayas sweep');
+            console.error(`[boards] ❌ himalayas sweep: ${error instanceof Error ? error.message : error}`);
+        }
     }
     if (failed.length) throw new Error(`boards failed: ${failed.join(', ')}`);
 }
