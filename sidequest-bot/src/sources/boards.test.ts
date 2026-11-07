@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-    himalayasClosed, iso, parseCareers, parseCastingCall, parseHimalayas, parseHubstaff, parseJobicy, parseProblogger, parseWeWorkRemotely, parseWordpressJobs, parseWorkWithIndies, parseYtFeed, parseYtJob, text,
+    BOARDS, CLOSED_CHECKS, blenderArtistsClosed, castingCallClosed, himalayasClosed, iso, ytJobClosed, parseCareers, parseCastingCall, parseHimalayas, parseHubstaff, parseJobicy, parseProblogger, parseWeWorkRemotely, parseWordpressJobs, parseWorkWithIndies, parseYtFeed, parseYtJob, text,
 } from './boards.js';
 import { isNsfwContent } from '../filters.js';
 
@@ -231,4 +231,39 @@ test('NSFW filter catches the spelled-out "Not Safe For Work - Mature Content" (
     assert.equal(isNsfwContent('Not Safe For Work - Mature Content', 'voice actor: $20 USD, flat rate'), true);
     assert.equal(isNsfwContent('Indie game VA', 'This project contains mature content.'), true);
     assert.equal(isNsfwContent('Mature narrator voice wanted', 'calm, mature tone for an audiobook'), false);
+});
+
+test('closed-job checks: YT Jobs status, Casting Call Club gate and deadlines, Blender Artists thread, page 404s; other failures are no answer', async () => {
+    const real = globalThis.fetch;
+    const reply = (body: string, status = 200) => { globalThis.fetch = (async () => new Response(body, { status })) as unknown as typeof fetch; };
+    const role = (validThrough?: string) => `<script type="application/ld+json">${JSON.stringify({ '@type': 'JobPosting', title: 'Narrator', description: 'x', validThrough })}</script>`;
+    const now = Date.parse('2026-11-07T00:00:00Z');
+    try {
+        reply('{"status":"active"}'); assert.equal(await ytJobClosed('46348'), false);
+        reply('{"status":"closed"}'); assert.equal(await ytJobClosed('46348'), true);
+        reply('{}', 404); assert.equal(await ytJobClosed('46348'), true);
+        reply('{"job":{}}'); await assert.rejects(ytJobClosed('46348'), /no status/); // shape changed: never read as closed
+
+        const url = 'https://www.castingcall.club/projects/p1';
+        reply('<title>Not Safe For Work - Mature Content | Casting Call Club</title>'); assert.equal(await castingCallClosed(url, now), true);
+        reply(role('2026-11-01T12:00:00-08:00') + role('2026-11-02T00:00:00Z')); assert.equal(await castingCallClosed(url, now), true);
+        reply(role('2026-11-01T12:00:00-08:00') + role('2026-12-01T00:00:00Z')); assert.equal(await castingCallClosed(url, now), false); // one role still open
+        reply(role()); assert.equal(await castingCallClosed(url, now), false); // no deadline given
+        reply('<html>redesigned</html>'); await assert.rejects(castingCallClosed(url, now), /no roles/);
+        reply('<title>Not Safe For Work - Mature Content | Casting Call Club</title><meta property="og:title" content="Not Safe For Work - Mature Content">');
+        const gated = await BOARDS.castingcall.detail!({ source: 'castingcall', sourceId: 'p1', sourceUrl: url, title: 'lovesick game jam', content: 'voice actor' } as never);
+        assert.equal(gated.drop, 'NSFW or 18+ (Casting Call Club age gate)'); // the gate's title is never taken as the job's
+
+        reply('{"closed":true}'); assert.equal(await blenderArtistsClosed('1234'), true);
+        reply('{"closed":false,"archived":false}'); assert.equal(await blenderArtistsClosed('1234'), false);
+
+        const page = { sourceId: '1', sourceUrl: 'https://jobs.wordpress.net/job/x/' };
+        reply('', 404); assert.equal(await CLOSED_CHECKS.wordpressjobs!(page), true);
+        reply('<html>'); assert.equal(await CLOSED_CHECKS.wordpressjobs!(page), false);
+        reply('', 403); await assert.rejects(CLOSED_CHECKS.jobicy!(page), /HTTP 403/);
+        assert.equal(CLOSED_CHECKS.hubstaff, undefined); // 403 for a missing job: can't tell
+        assert.equal(CLOSED_CHECKS.weworkremotely, undefined);
+    } finally {
+        globalThis.fetch = real;
+    }
 });

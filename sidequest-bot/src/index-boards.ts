@@ -14,7 +14,8 @@ import { scoreJob } from './ai/scorer.js';
 import { duplicateKeys } from './dedupe.js';
 import { isNsfwContent } from './filters.js';
 import { initDb, insertJob, jobExists, markRemoved, recentJobKeys, shownJobs } from './db/turso.js';
-import { BOARDS, MAX_AGE_MS, himalayasClosed, iso, type BoardPost } from './sources/boards.js';
+import { BOARDS, CLOSED_CHECKS, MAX_AGE_MS, iso, type BoardPost } from './sources/boards.js';
+import type { JobSource } from './types.js';
 
 const LOG = process.env.BOARDS_LOG || 'boards-log.jsonl';
 const LIVE = new Set((process.env.BOARDS_LIVE || '').split(',').map((s) => s.trim()).filter(Boolean));
@@ -52,29 +53,43 @@ const clip = (s: string | null, n = 1000): string | null => (s && s.length > n ?
 // The wrapper kills the run at 20 min (run_boards_scraper.sh, timeout 1200): the sweep stops checking at 16 min.
 const SWEEP_UNTIL = Date.now() + 16 * 60_000;
 
-// Himalayas' terms: remove jobs once they close (they can close before expiryDate). Runs after the boards so it can't
-// starve them, checks rows in random order until SWEEP_UNTIL (one request each, 1.5 s apart: ~600 rows after 30 days
-// at ~20 a day is ~15 min), so every row still gets checked every few runs once there are more than one run can do.
-async function sweepHimalayas(): Promise<void> {
-    const rows = await shownJobs('himalayas');
-    const closed: string[] = [];
+// Closed jobs come off our board: Himalayas' terms require it, and a dead listing is what the feed rule removes. Runs after
+// the boards so it can't starve them; checks every board's rows in one random order until SWEEP_UNTIL (one request each,
+// 1.5 s apart: ~900 rows after 30 days), so every row still gets checked every few runs once there are more than one
+// run can do. Returns the failures to alert on.
+async function sweepClosed(): Promise<string[]> {
+    const rows = await shownJobs(Object.keys(CLOSED_CHECKS));
+    const stats = new Map<string, { shown: number; checked: number; unanswered: number; closed: string[] }>();
+    for (const row of rows) {
+        const s = stats.get(row.source) ?? { shown: 0, checked: 0, unanswered: 0, closed: [] };
+        s.shown++;
+        stats.set(row.source, s);
+    }
     let checked = 0;
-    let unanswered = 0;
     for (const row of rows) {
         if (Date.now() > SWEEP_UNTIL) break;
+        const s = stats.get(row.source)!;
+        s.checked++;
         checked++;
         try {
-            if (await himalayasClosed(row.sourceId)) closed.push(row.id);
+            if (await CLOSED_CHECKS[row.source as JobSource]!(row)) s.closed.push(row.id);
         } catch (error) {
-            unanswered++;
-            console.error(`[boards]    ⚠️ himalayas sweep ${row.sourceId}: ${error instanceof Error ? error.message : error}`);
+            s.unanswered++;
+            console.error(`[boards]    ⚠️ ${row.source} sweep ${row.sourceUrl}: ${error instanceof Error ? error.message : error}`);
         }
     }
-    // Every job closed at once is more likely their API changing than real closures: hide nothing, alert.
-    if (closed.length >= 5 && closed.length === checked) throw new Error(`all ${checked} Himalayas jobs checked read as closed; nothing hidden`);
-    for (const id of closed) await markRemoved(id);
-    console.log(`[boards] himalayas sweep: ${rows.length} shown, ${checked} checked, ${closed.length} closed and removed, ${unanswered} unanswered`);
-    if (checked && unanswered === checked) throw new Error('no Himalayas job answered');
+    const failed: string[] = [];
+    for (const [source, s] of stats) {
+        // Every job closed at once is more likely the board changing its pages or API than real closures: hide nothing, alert.
+        const suspicious = s.closed.length >= 5 && s.closed.length === s.checked;
+        if (!suspicious) for (const id of s.closed) await markRemoved(id);
+        console.log(`[boards] ${source} sweep: ${s.shown} shown, ${s.checked} checked, ${suspicious ? 0 : s.closed.length} closed and removed, ${s.unanswered} unanswered`);
+        if (suspicious) failed.push(`${source} sweep (all ${s.checked} checked read as closed; nothing hidden)`);
+        else if (s.checked >= 3 && s.unanswered === s.checked) failed.push(`${source} sweep (no job answered)`);
+    }
+    // The boards took the whole budget: closed jobs would stay up with no other sign.
+    if (rows.length && !checked) failed.push(`closed-job sweep (no time left for ${rows.length} rows)`);
+    return failed;
 }
 
 async function run(): Promise<void> {
@@ -157,10 +172,13 @@ async function run(): Promise<void> {
     }
     if (LIVE.size) {
         try {
-            await sweepHimalayas();
+            for (const failure of await sweepClosed()) {
+                failed.push(failure);
+                console.error(`[boards] ❌ ${failure}`);
+            }
         } catch (error) {
-            failed.push('himalayas sweep');
-            console.error(`[boards] ❌ himalayas sweep: ${error instanceof Error ? error.message : error}`);
+            failed.push('closed-job sweep');
+            console.error(`[boards] ❌ closed-job sweep: ${error instanceof Error ? error.message : error}`);
         }
     }
     if (failed.length) throw new Error(`boards failed: ${failed.join(', ')}`);

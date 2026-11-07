@@ -127,10 +127,10 @@ const castingcall: Board = {
     // The API lowercases all text; the project page has the title and each role's description as written.
     async detail(post) {
         const html = await get(post.sourceUrl);
+        // Mature projects redirect to an age gate; its title was once stored as a job's ("Not Safe For Work - Mature Content")
+        if (castingCallGate(html)) return { drop: 'NSFW or 18+ (Casting Call Club age gate)' };
         const title = html.match(/<meta property="og:title" content="([^"]*)"/)?.[1];
-        const roles = [...html.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g)]
-            .map((m) => { try { return JSON.parse(m[1]); } catch { return null; } })
-            .filter((d) => d?.['@type'] === 'JobPosting') as { title: string; description: string }[];
+        const roles = jobPostings(html);
         return {
             title: title ? decode(title) : post.title,
             content: roles.length ? [head(post), ...roles.map((r) => `${r.title}\n${text(r.description)}`)].join('\n\n') : post.content,
@@ -642,6 +642,86 @@ export async function himalayasClosed(jobUrl: string): Promise<boolean> {
         throw error;
     }
 }
+
+const gone = (error: unknown): boolean => [404, 410].includes((error as { status?: number }).status ?? 0);
+
+/** A page that answers 404 or 410 is gone. Any other failure is thrown (unanswered), never read as closed. */
+async function pageGone(url: string): Promise<boolean> {
+    try {
+        await get(url);
+        return false;
+    } catch (error) {
+        if (gone(error)) return true;
+        throw error;
+    }
+}
+
+/** Casting Call Club sends mature projects to its age gate (fetch follows the redirect and lands on it). */
+const castingCallGate = (html: string): boolean => /<title>\s*Not Safe For Work/i.test(html);
+
+function jobPostings(html: string): { title: string; description: string; validThrough?: string }[] {
+    return [...html.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g)]
+        .map((m) => { try { return JSON.parse(m[1]); } catch { return null; } })
+        .filter((d) => d?.['@type'] === 'JobPosting');
+}
+
+/** Closed on Casting Call Club: deleted, behind the age gate, or every role past its deadline (JobPosting validThrough). */
+export async function castingCallClosed(url: string, now = Date.now()): Promise<boolean> {
+    let html: string;
+    try {
+        html = await get(url);
+    } catch (error) {
+        if (gone(error)) return true;
+        throw error;
+    }
+    if (castingCallGate(html)) return true;
+    const roles = jobPostings(html);
+    if (!roles.length) throw new Error(`no roles on ${url} (page changed?)`);
+    const ends = roles.map((r) => Date.parse(r.validThrough ?? ''));
+    return ends.every((end) => Number.isFinite(end) && end < now);
+}
+
+/** YT Jobs' web page is an app shell (200 for any id); its job API answers 404 for a missing job and a status otherwise. */
+export async function ytJobClosed(id: string): Promise<boolean> {
+    let json: string;
+    try {
+        json = await get(`https://app.ytjobs.co/api/jobs/${id}`, { Accept: 'application/json' });
+    } catch (error) {
+        if (gone(error)) return true;
+        throw error;
+    }
+    const status = (JSON.parse(json) as { status?: unknown }).status;
+    if (typeof status !== 'string' || !status) throw new Error(`YT Jobs ${id}: no status (API changed?)`);
+    return status !== 'active';
+}
+
+/** A Blender Artists topic is closed when its thread is closed, archived or deleted. */
+export async function blenderArtistsClosed(id: string): Promise<boolean> {
+    try {
+        const topic = JSON.parse(await get(`https://blenderartists.org/t/${id}.json`, { Accept: 'application/json' })) as { closed?: boolean; archived?: boolean };
+        return !!(topic.closed || topic.archived);
+    } catch (error) {
+        if (gone(error)) return true;
+        throw error;
+    }
+}
+
+/**
+ * How to tell a stored job has closed (true = take it off the board). Himalayas' terms require it; for the rest it's the
+ * feed rule (no dead listings). Hubstaff answers 403 for a missing job and We Work Remotely 403s us, so their rows
+ * wait for the 30-day cleanup. Page checks only ever read 404/410 as closed.
+ */
+export const CLOSED_CHECKS: Partial<Record<JobSource, (job: { sourceId: string; sourceUrl: string }) => Promise<boolean>>> = {
+    himalayas: (job) => himalayasClosed(job.sourceId),
+    ytjobs: (job) => ytJobClosed(job.sourceId),
+    castingcall: (job) => castingCallClosed(job.sourceUrl),
+    blenderartists: (job) => blenderArtistsClosed(job.sourceId),
+    workwithindies: (job) => pageGone(job.sourceUrl),
+    wordpressjobs: (job) => pageGone(job.sourceUrl),
+    problogger: (job) => pageGone(job.sourceUrl),
+    careers: (job) => pageGone(job.sourceUrl),
+    jobicy: (job) => pageGone(job.sourceUrl),
+};
 
 /** In fetch order: the professions the board needs most first (voice, writer, VA, audio). */
 export const BOARDS: Record<Exclude<JobSource, 'reddit'>, Board> = {

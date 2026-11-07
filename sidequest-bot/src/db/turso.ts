@@ -524,12 +524,14 @@ export const OLD_UNUSED_POSTS = `created_at < ?
 
 /** Rows of a source the dashboard still shows (it hides status 'removed'), any age (saved rows outlive the 30-day cleanup),
  * in random order so a check that runs out of time reaches different rows next run. */
-export async function shownJobs(source: string): Promise<{ id: string; sourceId: string }[]> {
+export async function shownJobs(sources: string[]): Promise<{ id: string; source: string; sourceId: string; sourceUrl: string }[]> {
+    if (!sources.length) return [];
     const result = await getDb().execute({
-        sql: "SELECT id, source_id FROM job_posts WHERE source = ? AND COALESCE(status, '') != 'removed' ORDER BY RANDOM()",
-        args: [source],
+        sql: `SELECT id, source, source_id, source_url FROM job_posts WHERE source IN (${sources.map(() => '?').join(', ')})
+              AND COALESCE(status, '') != 'removed' ORDER BY RANDOM()`,
+        args: sources,
     });
-    return result.rows.map((row) => ({ id: row.id as string, sourceId: row.source_id as string }));
+    return result.rows.map((row) => ({ id: row.id as string, source: row.source as string, sourceId: row.source_id as string, sourceUrl: row.source_url as string }));
 }
 
 /** 'removed' takes a card off the dashboard's feed, paywall, emails and alerts (as scripts/reddit_liveness.py does). */
