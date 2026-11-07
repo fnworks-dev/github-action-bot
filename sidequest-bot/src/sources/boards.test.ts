@@ -269,3 +269,14 @@ test('closed-job checks: YT Jobs status, Casting Call Club gate and deadlines, B
         globalThis.fetch = real;
     }
 });
+
+test('feed rules: full-time or on-site VA jobs go, a VA side tag goes, junk titles get the AI title', async () => {
+    const { withoutEmployeeVA, junkTitle } = await import('../ai/scorer.js');
+    const s = (professions: string[]) => ({ isJob: true, professions, score: 8, matchScore: 80, confidence: 1, summary: '', analysis: {} as never, method: 'ai' as const, reason: '' }) as never;
+    assert.equal(withoutEmployeeVA(s(['virtual-assistant']), 'Executive Assistant. Job Type: Full-time. Salary: $1.3K/month').score, 1);
+    assert.equal(withoutEmployeeVA(s(['virtual-assistant']), 'Hiring an on-site Executive Assistant').score, 1);
+    assert.equal(withoutEmployeeVA(s(['virtual-assistant']), 'Property manager VA, part time to full time hours available, $8-10/hr').score, 8);
+    assert.deepEqual((withoutEmployeeVA(s(['video-editor', 'virtual-assistant']), 'Full-time video editor and assistant') as { professions: string[] }).professions, ['video-editor']);
+    for (const t of ['Hiring', 'Help 🥹', '[Hiring] $50 Budget', 'Eureka', "I'm hiring, someone interested??"]) assert.ok(junkTitle(t), t);
+    for (const t of ['[Hiring] cold caller', 'DUSK - A Supernatural Mystery', '𝗤𝘂𝗮𝗹𝗶𝘁𝘆 𝗔𝘀𝘀𝘂𝗿𝗮𝗻𝗰𝗲 𝗘𝗻𝗴𝗶𝗻𝗲𝗲𝗿']) assert.ok(!junkTitle(t), t);
+});

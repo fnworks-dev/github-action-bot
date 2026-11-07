@@ -11,6 +11,7 @@ import { categorizeWithKeywords, heuristicSummary } from './categorizer.js';
 import { keywordIntentCheck } from './intent-detector.js';
 
 export interface JobScore {
+    title?: string | null; // the AI's plain title for the work; shown when the post's own says nothing (displayTitle)
     isJob: boolean;
     professions: Profession[];
     confidence: number;
@@ -38,7 +39,10 @@ Professions:
 - writer: copywriting, content, technical, script writing
 - audio: sound design, music, mixing
 - qa: testing, QA
-- virtual-assistant: admin, scheduling, data entry
+- virtual-assistant: admin, scheduling, data entry (remote freelance or part-time only: a full-time, salaried, on-site or hybrid assistant job scores 2)
+List the main profession first: the work the post mostly pays for. Add another only if the post also pays for that work as a
+separate role or deliverable; a skill that helps the main work doesn't count (a video editor who writes captions is ["video-editor"],
+a YouTube channel designer is ["artist"]).
 
 POST ({where}):
 Title: {title}
@@ -60,7 +64,7 @@ Decide:
 3. match_score 0-100: overall rank value (roughly score*10, adjust within the band for detail quality).{boardRules}
 
 Return ONLY JSON, no markdown:
-{"isJob":true,"professions":["artist"],"confidence":0.9,"score":7,"match_score":72,
+{"title":"Character reference sheet for an original character","isJob":true,"professions":["artist"],"confidence":0.9,"score":7,"match_score":72,
 "summary":"1-2 plain sentences: what they need and pay",
 "project_type":"Character illustration" or null,
 "tech_stack":["Procreate"] or [],
@@ -68,7 +72,8 @@ Return ONLY JSON, no markdown:
 "timeline_signal":"ASAP" or null,
 "budget_signal":"$60 per portrait" or null,
 "red_flags":[],"green_flags":[],
-"reason":"short why"}`;
+"reason":"short why"}
+"title": a plain title naming the work, under 80 characters; the post's own words when its title already says what the work is.`;
 
 // Job boards list everything a company posts, so they get the owner's rules for what is a side quest
 // (job-fetcher docs/handoff-new-job-sources-2026-11-05.md section 1). The Reddit prompt stays as it was.
@@ -130,7 +135,8 @@ export function parseScore(raw: string, post: RawPost): JobScore {
     const scope = typeof p.scope === 'string' && ['small', 'medium', 'large'].includes(p.scope)
         ? p.scope as JobAnalysis['scope'] : null;
     const summary = nullableStr(p.summary) || heuristicSummary(post.title, post.content) || post.title;
-    return {
+    return withoutEmployeeVA({
+        title: nullableStr(p.title)?.slice(0, 120) ?? null,
         isJob: p.isJob === true,
         professions,
         confidence: clamp(Number(p.confidence) * 100, 0, 100, 70) / 100,
@@ -149,8 +155,27 @@ export function parseScore(raw: string, post: RawPost): JobScore {
         matchScore: clamp(p.match_score, 0, 100, score * 10),
         method: 'ai',
         reason: nullableStr(p.reason) || '',
-    };
+    }, `${post.title}\n${post.content ?? ''}`);
 }
+
+// A full-time, salaried or on-site assistant job is not a side gig (dashboard feedback 2026-11-07); "part-time or
+// full-time" offers stay. VA as the main profession: the job goes (score 1); as a side tag: only the tag goes.
+// ponytail: a keyword check, so "not full-time" also drops; same rule in job-fetcher {twitter,discord}-scraper src/ai/scorer.ts.
+const FULL_TIME = /\bfull[- ]?time\b|\b(?:40|forty)\+?\s*(?:hours|hrs)\b|\bsalary\b/i;
+const ON_SITE = /\bon-?site\b|\bin[- ](?:office|person)\b|\bhybrid\b/i;
+export function withoutEmployeeVA(s: JobScore, text: string): JobScore {
+    const employee = ON_SITE.test(text) || (FULL_TIME.test(text) && !/\bpart[- ]?time\b/i.test(text));
+    if (!employee || !s.professions.includes('virtual-assistant')) return s;
+    if (s.professions[0] === 'virtual-assistant') return { ...s, score: 1, matchScore: 0, reason: 'full-time or on-site assistant job' };
+    return { ...s, professions: s.professions.filter((p) => p !== 'virtual-assistant') };
+}
+
+// A title that says nothing about the work ("Hiring", "Help 🥹", a Casting Call Club project name like "Eureka"):
+// show the AI's title instead. Same rule in job-fetcher twitter-scraper src/ai/scorer.ts.
+const FILLER = new Set('hiring hire hired we re are i m am im help paid work job jobs vacancy new alert urgent now looking for someone anyone interested budget usd the a an to of on in my me need needed offer'.split(' '));
+export const junkTitle = (title: string): boolean =>
+    (title.normalize('NFKC').toLowerCase().match(/[a-z]+/g) ?? []).filter((w) => !FILLER.has(w)).length < 2;
+export const displayTitle = (post: RawPost, s: JobScore): string => (junkTitle(post.title) && s.title ? s.title : post.title);
 
 const PAY_RE = /(\$\s?\d|\d+\s?(usd|eur|gbp|€|£)|\/\s?(hr|hour)|per (hour|piece|image|page|word)|budget|paid|paying)/i;
 const LOWVALUE_RE = /\b(unpaid|exposure|rev(enue)?[\s-]?share|equity only|art trade|portfolio piece|free test|volunteer)\b/i;

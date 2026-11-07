@@ -10,7 +10,7 @@
  *   node dist/index-boards.js --report   per board: gigs per day and profession, how many scored 7+, recent gigs
  */
 import { appendFileSync, existsSync, readFileSync } from 'fs';
-import { scoreJob } from './ai/scorer.js';
+import { displayTitle, scoreJob } from './ai/scorer.js';
 import { duplicateKeys } from './dedupe.js';
 import { isNsfwContent } from './filters.js';
 import { initDb, insertJob, jobExists, markRemoved, recentJobKeys, shownJobs } from './db/turso.js';
@@ -162,7 +162,7 @@ async function run(): Promise<void> {
                 continue;
             }
             if (live) {
-                await insertJob({ ...post, content: clip(post.content) }, professions, scored.score, scored.summary, scored.analysis, scored.matchScore);
+                await insertJob({ ...post, title: displayTitle(post, scored), content: clip(post.content) }, professions, scored.score, scored.summary, scored.analysis, scored.matchScore);
                 duplicateKeys(post).forEach((k) => stored.add(k));
             }
             log(post, live ? 'insert' : 'accept', scored.reason, result);

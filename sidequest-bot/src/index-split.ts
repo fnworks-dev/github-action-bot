@@ -20,7 +20,7 @@ const professions = configModule.professions;
 import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import { keywordIntentCheck } from './ai/intent-detector.js';
-import { scoreJob } from './ai/scorer.js';
+import { displayTitle, scoreJob } from './ai/scorer.js';
 import { loadRejected, saveRejected } from './rejected-cache.js';
 import { duplicateKeys } from './dedupe.js';
 import type { JobScore } from './ai/scorer.js';
@@ -280,7 +280,7 @@ async function processJobs(): Promise<{ fetched: number; newJobs: number }> {
             console.log(`[Bot-${CONFIG_NUM}]   🔁 copy of a stored job, skipped: ${post.title.slice(0, 50)}`);
             continue;
         }
-        const inserted = await insertJob(post, scored.professions, scored.score, scored.summary, scored.analysis, scored.matchScore);
+        const inserted = await insertJob({ ...post, title: displayTitle(post, scored) }, scored.professions, scored.score, scored.summary, scored.analysis, scored.matchScore);
         keys.forEach((k) => stored.add(k));
         if (inserted) newJobsCount++;
         else console.log(`[Bot-${CONFIG_NUM}]   ↔️ already stored by the other runner: ${post.title.slice(0, 50)}`);

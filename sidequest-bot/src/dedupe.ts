@@ -25,5 +25,6 @@ export function duplicateKeys(post: { author: string | null; title: string; cont
         if (body.length >= 100) keys.push(`b:${author}:${body.slice(0, 100)}`); // same post, title reworded per sub
     }
     if (body.length >= 150) keys.push(`c:${body.slice(0, 150)}`); // same long text from several accounts
+    if (useTitle && title.length >= 60) keys.push(`T:${title.slice(0, 120)}`); // sister accounts' short posts (X write_jobs + writejobsplus)
     return keys;
 }

@@ -42,3 +42,9 @@ test('different gigs stay apart', () => {
     // deleted authors never match on title
     assert.ok(!same({ author: '[deleted]', title: 'Need a logo designer', content: null }, { author: '[deleted]', title: 'Need a logo designer', content: null }));
 });
+
+test('sister accounts posting the same long title are one gig; short titles from two people stay two', () => {
+    const a = { author: 'write_jobs', title: 'Looking for a scriptwriter (cartoons, anime, gaming) | pay: $250 to $600 per script', content: 'Apply: x.co/1' };
+    assert.ok(same(a, { ...a, author: 'writejobsplus', content: 'Apply: x.co/2' }));
+    assert.ok(!same({ author: 'ann', title: 'Looking for a video editor', content: null }, { author: 'bob', title: 'Looking for a video editor', content: null }));
+});
