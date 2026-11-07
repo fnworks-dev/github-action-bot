@@ -5,6 +5,7 @@ interface AITextOptions {
     temperature: number;
     maxOutputTokens: number;
     taskLabel: string;
+    proxyModels?: string[]; // set: the LLM proxy goes first, with these models, then Gemini
 }
 
 interface GeminiResponse {
@@ -301,7 +302,7 @@ function generateWithNvidiaNim(options: AITextOptions): Promise<string> {
 }
 
 function generateWithProxy(options: AITextOptions): Promise<string> {
-    return generateWithOpenAICompat('LLM Proxy', config.ai.proxyUrl, config.ai.proxyKey, config.ai.proxyModels, PROXY_TIMEOUT_MS, options);
+    return generateWithOpenAICompat('LLM Proxy', config.ai.proxyUrl, config.ai.proxyKey, options.proxyModels ?? config.ai.proxyModels, PROXY_TIMEOUT_MS, options);
 }
 
 // ponytail: per-process circuit breaker; a provider that fails this many calls in a row
@@ -321,6 +322,7 @@ export async function generateTextWithFallback(options: AITextOptions): Promise<
         ['LLM Proxy', Boolean(config.ai.proxyKey && config.ai.proxyModels.length), () => generateWithProxy(options), 1],
         ['NVIDIA NIM', Boolean(config.ai.nvidiaNimKey), () => generateWithNvidiaNim(options), DEFAULT_MAX_ATTEMPTS],
     ];
+    if (options.proxyModels) tiers.unshift(tiers.splice(1, 1)[0]);
     const errors: string[] = [];
 
     for (const [name, enabled, run, attempts] of tiers) {

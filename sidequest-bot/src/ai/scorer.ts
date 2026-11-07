@@ -73,6 +73,9 @@ Return ONLY JSON, no markdown:
 // Job boards list everything a company posts, so they get the owner's rules for what is a side quest
 // (job-fetcher docs/handoff-new-job-sources-2026-11-05.md section 1). The Reddit prompt stays as it was.
 // Asked as a named field: a weaker fallback model scored an AI-training recruiter 6/10 while its own reason said "recruiter".
+// Job boards score on gpt-oss first: on 2026-11-07 against the agent's labels (job-fetcher state/scorer-eval) it kept
+// 25/25 + 18/18 gigs with ~10% junk; gemini-3.1-flash-lite kept 18/25 + 13/18 and ignored rules it was given.
+const BOARD_MODELS = ['ollama/gpt-oss:120b', 'ollama/gemma4:31b'];
 const BOARD_RULES = `
 4. This post comes from the job board {where}, where companies list every kind of job. Decide if it is a side quest:
    paid work a freelancer can take next to other work, done for the company that posts it, in one of the professions above.
@@ -194,6 +197,7 @@ export async function scoreJob(post: RawPost, board?: string): Promise<JobScore>
                 temperature: 0.1,
                 maxOutputTokens: 4096, // gemini-2.5-flash thinks ~2-3k tokens before answering; 2048 cut its JSON off
                 taskLabel: 'job scoring',
+                proxyModels: board ? BOARD_MODELS : undefined,
             });
             return parseScore(raw, post);
         } catch (error) {

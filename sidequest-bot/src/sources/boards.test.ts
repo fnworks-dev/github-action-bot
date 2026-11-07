@@ -146,9 +146,10 @@ test('Himalayas: open to the US or worldwide, not AI-training recruiting, apply 
         locationRestrictions: [], timezoneRestrictions: [-8, -5], pubDate: 1793910128, expiryDate: 4102444800,
         applicationLink: 'https://himalayas.app/companies/collider/jobs/list-writer?utm_source=x', ...over,
     });
-    const [ok, india, asia, vendor, title, expired] = parseHimalayas(JSON.stringify({ jobs: [
+    const [ok, india, asia, vendor, title, expired, yo] = parseHimalayas(JSON.stringify({ jobs: [
         job({}), job({ locationRestrictions: ['India', 'Mexico'] }), job({ timezoneRestrictions: [5, 8] }),
         job({ companyName: 'micro1' }), job({ title: 'Audio Engineer - AI Trainer' }), job({ expiryDate: 1 }),
+        job({ companyName: 'YO AI Labs', title: 'Krita Expert - Remote' }),
     ] }));
     assert.equal(ok.sourceUrl, 'https://himalayas.app/companies/collider/jobs/list-writer?utm_source=x');
     assert.equal(ok.content, 'contractor, USD 35–40 hourly, worldwide\n\nWrite lists');
@@ -158,6 +159,7 @@ test('Himalayas: open to the US or worldwide, not AI-training recruiting, apply 
     assert.equal(vendor.drop, 'AI-training recruiting');
     assert.equal(title.drop, 'AI-training recruiting');
     assert.equal(expired.drop, 'expired');
+    assert.equal(yo.drop, 'AI-training recruiting');
 });
 
 test('Jobicy: gig types only, not AI-training recruiting; Apply stays on Jobicy; the cursor is passed on', () => {

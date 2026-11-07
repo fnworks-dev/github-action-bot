@@ -489,7 +489,7 @@ const HZ_QUERIES = [
     'qa', 'tester', 'assistant', 'customer support', 'data entry', 'social media',
 ];
 // The remote-job indexes are full of AI rater and "expert" recruiting (Himalayas 2026-11-06: 9 of the 18 contract jobs open to the US)
-const AI_VENDORS = /^(micro1|mercor|xperteez|innodata|welo global|imerit|outlier|dataannotation|alignerr|invisible|turing|telus|appen|scale ai|remotasks|toloka|prolific)\b/i;
+const AI_VENDORS = /^(micro1|mercor|xperteez|innodata|welo global|imerit|outlier|dataannotation|alignerr|invisible|turing|telus|appen|scale ai|remotasks|toloka|prolific|yo ai labs|lifted|labelbox|opentrain)\b/i;
 const AI_TITLES = /\b(ai train\w*|ai tutor|annotat\w*|data label\w*|rater|search engine evaluator|bilingual expert)\b|expert, remote- contract/i;
 const aiRecruiting = (company: string, title: string): boolean => AI_VENDORS.test(company) || AI_TITLES.test(title);
 const US_OFFSETS = [-5, -6, -7, -8, -9, -10];
