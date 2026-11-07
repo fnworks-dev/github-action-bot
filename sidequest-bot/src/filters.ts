@@ -10,6 +10,8 @@ const NSFW_TERMS = [
     'nsfw',
     '18+',
     'adult content',
+    'not safe for work', // spelled out: Casting Call Club 'Not Safe For Work - Mature Content' (2026-11-07)
+    'mature content',
     'explicit content',
     'erotic',
     'erotica',

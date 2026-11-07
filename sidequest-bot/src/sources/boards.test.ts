@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
     himalayasClosed, iso, parseCareers, parseCastingCall, parseHimalayas, parseHubstaff, parseJobicy, parseProblogger, parseWeWorkRemotely, parseWordpressJobs, parseWorkWithIndies, parseYtFeed, parseYtJob, text,
 } from './boards.js';
+import { isNsfwContent } from '../filters.js';
 
 // Trimmed copies of what each board answered on 2026-11-05.
 
@@ -224,4 +225,10 @@ test('Himalayas sweep: 410 and 404 are closed, 200 is open, anything else is no 
     }
     assert.equal(asked[0], 'https://himalayas.app/jobs/api/companies/comic-book-resources-cbr/jobs/movieweb-news-writer-film-and-tv');
     await assert.rejects(himalayasClosed('https://example.com/jobs/1'), /not a Himalayas job URL/);
+});
+
+test('NSFW filter catches the spelled-out "Not Safe For Work - Mature Content" (a Casting Call Club title); plain "mature" stays', () => {
+    assert.equal(isNsfwContent('Not Safe For Work - Mature Content', 'voice actor: $20 USD, flat rate'), true);
+    assert.equal(isNsfwContent('Indie game VA', 'This project contains mature content.'), true);
+    assert.equal(isNsfwContent('Mature narrator voice wanted', 'calm, mature tone for an audiobook'), false);
 });
