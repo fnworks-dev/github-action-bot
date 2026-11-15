@@ -5,7 +5,6 @@ interface AITextOptions {
     temperature: number;
     maxOutputTokens: number;
     taskLabel: string;
-    proxyModels?: string[]; // set: the LLM proxy goes first, with these models, then Gemini
 }
 
 interface GeminiResponse {
@@ -26,7 +25,7 @@ interface NvidiaNimResponse {
 }
 
 const DEFAULT_TIMEOUT_MS = parsePositiveInt(process.env.SIDEQUEST_AI_TIMEOUT_MS, 15_000);
-// Ollama models normally answer in 2-6s; stalls happen, so fail fast to the next model/tier.
+// Free OpenRouter models via the proxy; stalls happen, so fail fast to the next model/tier.
 const PROXY_TIMEOUT_MS = parsePositiveInt(process.env.LLM_PROXY_TIMEOUT_MS, 20_000);
 const DEFAULT_MAX_ATTEMPTS = parsePositiveInt(process.env.SIDEQUEST_AI_MAX_ATTEMPTS, 2);
 const DEFAULT_RETRY_BASE_DELAY_MS = parsePositiveInt(process.env.SIDEQUEST_AI_RETRY_BASE_DELAY_MS, 1_500);
@@ -302,7 +301,7 @@ function generateWithNvidiaNim(options: AITextOptions): Promise<string> {
 }
 
 function generateWithProxy(options: AITextOptions): Promise<string> {
-    return generateWithOpenAICompat('LLM Proxy', config.ai.proxyUrl, config.ai.proxyKey, options.proxyModels ?? config.ai.proxyModels, PROXY_TIMEOUT_MS, options);
+    return generateWithOpenAICompat('LLM Proxy', config.ai.proxyUrl, config.ai.proxyKey, config.ai.proxyModels, PROXY_TIMEOUT_MS, options);
 }
 
 // ponytail: per-process circuit breaker; a provider that fails this many calls in a row
@@ -315,14 +314,13 @@ export function hasAIProvider(): boolean {
 }
 
 export async function generateTextWithFallback(options: AITextOptions): Promise<string> {
-    // [name, enabled, run, attempts]. Gemini primary, Ollama (LLM proxy) fallback. Gemini and the
-    // proxy get 1 attempt each: their key x model / model lists are already the retry.
+    // [name, enabled, run, attempts]. Free OpenRouter models (LLM proxy) first to save Gemini quota, Gemini
+    // fallback. Gemini and the proxy get 1 attempt each: their key x model / model lists are already the retry.
     const tiers: Array<[string, boolean, () => Promise<string>, number]> = [
-        ['Gemini', config.ai.geminiKeys.length > 0, () => generateWithGemini(options), 1],
         ['LLM Proxy', Boolean(config.ai.proxyKey && config.ai.proxyModels.length), () => generateWithProxy(options), 1],
+        ['Gemini', config.ai.geminiKeys.length > 0, () => generateWithGemini(options), 1],
         ['NVIDIA NIM', Boolean(config.ai.nvidiaNimKey), () => generateWithNvidiaNim(options), DEFAULT_MAX_ATTEMPTS],
     ];
-    if (options.proxyModels) tiers.unshift(tiers.splice(1, 1)[0]);
     const errors: string[] = [];
 
     for (const [name, enabled, run, attempts] of tiers) {

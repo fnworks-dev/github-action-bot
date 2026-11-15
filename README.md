@@ -70,12 +70,12 @@ This public repository is used to run GitHub Actions with unlimited free minutes
 
 All AI tasks (intent detection, categorization, analysis, summaries) use `sidequest-bot/src/ai/client.ts`:
 
-1. **Gemini pool** — model-major: for each model, try every key before moving on.
+1. **Free OpenRouter models via LLM proxy** — `LLM_PROXY_MODELS` (default `openrouter/ernie-5.5-flash-preview:free,openrouter/particle-1:free`; shared 1000 req/day cap, then Gemini takes over)
+2. **Gemini pool** (fallback) — model-major: for each model, try every key before moving on.
    - Keys: `GEMINI_API_KEYS` (comma-separated, one per Google project; free limits are per project) plus legacy `GEMINI_API_KEY` / `GEMINI_BACKUP_KEY_1` / `GEMINI_BACKUP_KEY_2`. The starting key rotates per call.
    - 401/403/429/`API_KEY_INVALID` → next key, same model. 503/timeout/cut-off → next model.
    - Models: `gemini-3.1-flash-lite` → `gemini-3.1-flash-lite-preview` → `gemini-3.5-flash-lite` (override with `GEMINI_MODELS`)
    - Same pool rules as the app's AI replies (`sidequest-board`) and the Twitter/Discord scrapers (`sidequestboard-job-fetcher`).
-2. **Ollama via LLM proxy** — `LLM_PROXY_MODELS`
 3. **NVIDIA NIM cascade** — `nvidia/nemotron-3-super-120b-a12b` → `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` (override via comma-separated `NIM_MODELS` env; `NIM_MODEL` = legacy single-model override)
 
 Notes:

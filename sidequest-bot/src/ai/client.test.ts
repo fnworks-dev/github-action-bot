@@ -38,3 +38,30 @@ test('model overload skips to the next model instead of burning every key', asyn
     assert.equal(await generateTextWithFallback(opts), 'ok m2');
     assert.equal(calls.filter((c) => c.model === 'm1').length, 1);
 });
+
+test('free proxy models go first; a proxy failure falls back to Gemini', async () => {
+    const { config } = await import('../config.js');
+    config.ai.proxyKey = 'px';
+    config.ai.proxyModels = ['openrouter/free:free'];
+    let proxyStatus = 200;
+    const hits: string[] = [];
+    globalThis.fetch = (async (url: string) => {
+        if (url.includes('fnworks')) {
+            hits.push('proxy');
+            return proxyStatus === 200
+                ? new Response(JSON.stringify({ choices: [{ message: { content: 'ok proxy' }, finish_reason: 'stop' }] }))
+                : new Response('{"error":{"message":"free-models-per-day"}}', { status: proxyStatus });
+        }
+        hits.push('gemini');
+        return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'ok gemini' }] }, finishReason: 'STOP' }] }));
+    }) as typeof fetch;
+    try {
+        assert.equal(await generateTextWithFallback(opts), 'ok proxy');
+        assert.deepEqual(hits, ['proxy']);
+        proxyStatus = 429;
+        assert.equal(await generateTextWithFallback(opts), 'ok gemini');
+        assert.equal(hits.at(-1), 'gemini');
+    } finally {
+        config.ai.proxyKey = '';
+    }
+});

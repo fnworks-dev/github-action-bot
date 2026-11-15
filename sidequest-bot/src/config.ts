@@ -17,13 +17,14 @@ export const config = {
         authToken: process.env.TURSO_AUTH_TOKEN || '',
     },
 
-    // AI: Gemini primary (key x model cascade) -> Ollama via fnworks llm-proxy -> NVIDIA NIM.
+    // AI: free OpenRouter models via fnworks llm-proxy -> Gemini (key x model cascade) -> NVIDIA NIM.
+    // ernie kept 17/17 gigs, let in 1/33 junk on state/scorer-eval fresh.json (2026-11-15); particle-1 is its backup.
     ai: {
-        // Fallback tier: fnworks llm-proxy (OpenAI-compatible) serving Ollama models.
+        // First tier: fnworks llm-proxy (OpenAI-compatible) serving free OpenRouter models.
         // gemma4:31b first: closest to Gemini in the 2026-10-09 benchmark; gpt-oss:120b behind it.
         proxyKey: process.env.LLM_PROXY_API_KEY || '',
         proxyUrl: `${(process.env.LLM_PROXY_BASE_URL || 'https://api.fnworks.dev/v1').trim().replace(/\/+$/, '')}/chat/completions`,
-        proxyModels: (process.env.LLM_PROXY_MODELS || 'ollama/gemma4:31b,ollama/gpt-oss:120b')
+        proxyModels: (process.env.LLM_PROXY_MODELS || 'openrouter/ernie-5.5-flash-preview:free,openrouter/particle-1:free')
             .split(',')
             .map((m) => m.trim())
             .filter(Boolean),
