@@ -39,7 +39,7 @@ Professions:
 - writer: copywriting, content, technical, script writing
 - audio: sound design, music, mixing
 - qa: testing, QA
-- virtual-assistant: admin, scheduling, data entry (remote freelance or part-time only: a full-time, salaried, on-site or hybrid assistant job scores 2)
+- virtual-assistant: admin, scheduling, inbox, data entry, bookkeeping, customer or chat support for a business (never adult-content "chatter" work; remote freelance or part-time only: a full-time, salaried, on-site or hybrid assistant job scores 2)
 List the main profession first: the work the post mostly pays for. Add another only if the post also pays for that work as a
 separate role or deliverable; a skill that helps the main work doesn't count (a video editor who writes captions is ["video-editor"],
 a YouTube channel designer is ["artist"]).
@@ -93,11 +93,11 @@ const BOARD_RULES = `
    - "staffing": a staffing firm, consultancy or recruiter placing someone with its client ("our client is seeking", a client
      name, W2/C2C, visa terms, "contingent on contract award");
    - "outside professions": business roles the professions above don't cover: marketing, SEO, sales, strategy, operations, management or leadership,
-     legal or paralegal, finance, HR, recruiting, medical or clinical, teaching, tutoring or mentoring, logistics, customer support management,
+     legal or paralegal, finance (bookkeeping is virtual-assistant), HR, recruiting, medical or clinical, teaching, tutoring or mentoring, logistics, customer support management,
      and lead, architect or principal roles that run a team or a client's systems;
    - "AI training": training or evaluating AI (e.g. "bilingual expert $30-65/hr");
    - "location": limited to people in one country other than the US, or on-site outside the US;
-   - "commission": paid mainly by commission; "unpaid trial": pay only after an unpaid trial; "under $10/hour";
+   - "commission": paid mainly by commission; "unpaid trial": pay only after an unpaid trial;
    - "other": paid research studies, surrogacy, crypto business development or exam-taking.
    Add "not_side_quest" to the JSON: the quoted label that applies, or null. If one applies, score 1.`;
 
