@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-    BOARDS, CLOSED_CHECKS, blenderArtistsClosed, castingCallClosed, himalayasClosed, iso, ytJobClosed, parseCareers, parseCastingCall, parseHimalayas, parseHubstaff, parseJobicy, parseProblogger, parseWeWorkRemotely, parseWordpressJobs, parseWorkWithIndies, parseYtFeed, parseYtJob, text,
+    BOARDS, CLOSED_CHECKS, feedProfessions, vaJob, blenderArtistsClosed, castingCallClosed, himalayasClosed, iso, ytJobClosed, parseCareers, parseCastingCall, parseHimalayas, parseHubstaff, parseJobicy, parseProblogger, parseWeWorkRemotely, parseWordpressJobs, parseWorkWithIndies, parseYtFeed, parseYtJob, text,
 } from './boards.js';
 import { isNsfwContent } from '../filters.js';
 
@@ -45,14 +45,15 @@ test('YT Jobs: feed gives id and time; full-time and non-editing roles drop', ()
 });
 
 test('Hubstaff: cards come out of the escaped JS; full time drops; times are UTC', () => {
-    const card = (slug: string, label: string) => '<div class=\\"search-result\\"><div class=\\"main-details\\">'
-        + `<a class=\\"name margin-right-10\\" rel=\\"nofollow\\" href=\\"\\/jobs\\/${slug}\\">Kajabi Specialist &amp; VA<\\/a>`
+    const card = (slug: string, label: string, title = 'Kajabi Specialist &amp; VA') => '<div class=\\"search-result\\"><div class=\\"main-details\\">'
+        + `<a class=\\"name margin-right-10\\" rel=\\"nofollow\\" href=\\"\\/jobs\\/${slug}\\">${title}<\\/a>`
         + `<span class=\\"label label-${label} margin-left-5\\">x<\\/span><div class=\\"pay-rate\\">\\$500<\\/div>`
         + '<a class=\\"is-inline-block job-agency margin-right-20\\" href=\\"https:\\/\\/x.com\\/\\"><i class=\\"hi hi-agency\\" title=\\"Client\\"><\\/i> MeetYourVA<\\/a>'
         + '<span class=\\"location\\"><i class=\\"hi hi-pin\\"><\\/i> <strong>HQ:<\\/strong> New York, United States<\\/span>'
         + '<span class=\\"a-tooltip\\" data-original-title=\\"November  5, 2026 at  1:23 pm\\">2 hrs ago<\\/span>'
         + '<div class=\\"profil-bio push-bottom-10\\">Build email campaigns in Kajabi...<\\/div><\\/div><\\/div>';
-    const [fixed, fullTime] = parseHubstaff(`$('#results').html("${card('kajabi-specialist', 'fixed_price')}${card('python-engineer', 'full_time')}");`);
+    const [fixed, fullTime, fullTimeVA] = parseHubstaff(`$('#results').html("${card('kajabi-specialist', 'fixed_price')}`
+        + `${card('python-engineer', 'full_time', 'Python Engineer')}${card('kajabi-va', 'full_time')}");`);
     assert.equal(fixed.sourceUrl, 'https://hubstafftalent.net/jobs/kajabi-specialist');
     assert.equal(fixed.title, 'Kajabi Specialist & VA');
     assert.equal(fixed.author, 'MeetYourVA');
@@ -60,6 +61,8 @@ test('Hubstaff: cards come out of the escaped JS; full time drops; times are UTC
     assert.equal(fixed.content, 'fixed price, $500, company HQ New York, United States\n\nBuild email campaigns in Kajabi...');
     assert.equal(fixed.drop, undefined);
     assert.equal(fullTime.drop, 'full-time');
+    assert.equal(fullTimeVA.drop, undefined); // owner 2026-11-17: a full-time assistant job goes to the AI
+    assert.deepEqual([fixed.employee, fullTimeVA.employee], [undefined, 'full-time']);
 });
 
 test('Work With Indies: keeps contract work open to US users; the AI picks the profession when tags give none', () => {
@@ -146,10 +149,12 @@ test('Himalayas: open to the US or worldwide, not AI-training recruiting, apply 
         locationRestrictions: [], timezoneRestrictions: [-8, -5], pubDate: 1793910128, expiryDate: 4102444800,
         applicationLink: 'https://himalayas.app/companies/collider/jobs/list-writer?utm_source=x', ...over,
     });
-    const [ok, india, asia, vendor, title, expired, yo] = parseHimalayas(JSON.stringify({ jobs: [
+    const [ok, india, asia, vendor, title, expired, yo, staff, support, pavago] = parseHimalayas(JSON.stringify({ jobs: [
         job({}), job({ locationRestrictions: ['India', 'Mexico'] }), job({ timezoneRestrictions: [5, 8] }),
         job({ companyName: 'micro1' }), job({ title: 'Audio Engineer - AI Trainer' }), job({ expiryDate: 1 }),
         job({ companyName: 'YO AI Labs', title: 'Krita Expert - Remote' }),
+        job({ employmentType: 'Full Time' }), job({ employmentType: 'Full Time', title: 'Customer Support Specialist' }),
+        job({ companyName: 'Pavago', title: 'Data Entry Specialist' }),
     ] }));
     assert.equal(ok.sourceUrl, 'https://himalayas.app/companies/collider/jobs/list-writer?utm_source=x');
     assert.equal(ok.content, 'contractor, USD 35–40 hourly, worldwide\n\nWrite lists');
@@ -160,6 +165,9 @@ test('Himalayas: open to the US or worldwide, not AI-training recruiting, apply 
     assert.equal(title.drop, 'AI-training recruiting');
     assert.equal(expired.drop, 'expired');
     assert.equal(yo.drop, 'AI-training recruiting');
+    assert.equal(staff.drop, 'full-time');
+    assert.deepEqual([support.drop, support.employee, ok.employee], [undefined, 'Full Time', undefined]);
+    assert.equal(pavago.drop, 'staffing firm');
 });
 
 test('Jobicy: gig types only, not AI-training recruiting; Apply stays on Jobicy; the cursor is passed on', () => {
@@ -168,8 +176,9 @@ test('Jobicy: gig types only, not AI-training recruiting; Apply stays on Jobicy;
         jobType: ['Contract'], jobGeo: 'USA', jobExcerpt: 'Write grants', jobDescription: '<p>Write <b>grants</b></p>', pubDate: '2026-11-04T10:00:00+00:00',
         salaryMin: 40, salaryMax: 50, salaryCurrency: 'USD', salaryPeriod: 'hourly', ...over,
     });
-    const { posts: [ok, fullTime, trainer, vendor], next } = parseJobicy(JSON.stringify({ nextCursor: 'abc', jobs: [
+    const { posts: [ok, fullTime, trainer, vendor, support], next } = parseJobicy(JSON.stringify({ nextCursor: 'abc', jobs: [
         job({}), job({ jobType: ['Full-Time'] }), job({ jobTitle: 'AI Trainers Network - English (United States)' }), job({ companyName: 'Welo Global' }),
+        job({ jobType: ['Full-Time'], jobTitle: 'Customer Support Representative' }),
     ] }));
     assert.equal(next, 'abc');
     assert.equal(ok.sourceUrl, 'https://jobicy.com/jobs/1-grant-writer');
@@ -179,6 +188,7 @@ test('Jobicy: gig types only, not AI-training recruiting; Apply stays on Jobicy;
     assert.equal(ok.drop, undefined);
     assert.equal(fullTime.drop, 'job type Full-Time');
     assert.equal(trainer.drop, 'AI-training recruiting');
+    assert.deepEqual([support.drop, support.employee, ok.employee], [undefined, 'Full-Time', undefined]);
     assert.equal(vendor.drop, 'AI-training recruiting');
 });
 
@@ -187,11 +197,12 @@ test('We Work Remotely: contract posts open to the US; a country list overrides 
         + `<country>${country}</country><category>Design</category><type>${type}</type>`
         + '<description>&lt;p&gt;&lt;strong&gt;Headquarters:&lt;/strong&gt; Austin&lt;/p&gt;&lt;p&gt;Design &amp;amp; build&lt;/p&gt;</description>'
         + `<pubDate>Thu, 05 Nov 2026 18:00:00 +0000</pubDate><link>https://weworkremotely.com/remote-jobs/${title.length}-x</link></item>`;
-    const [ok, fullTime, serbia, us] = parseWeWorkRemotely(`<rss>${[
+    const [ok, fullTime, serbia, us, assistant] = parseWeWorkRemotely(`<rss>${[
         item('Breakthrough Design Group: Senior Creative &amp; Web Designer', 'Contract', 'Anywhere in the World'),
         item('Big Co: Engineer', 'Full-Time', 'Anywhere in the World'),
         item('Wolt - English: Support Associate', 'Contract', 'Anywhere in the World', '🇷🇸 Serbia'),
         item('Ninja Partners LLC: Customer Service Representative II', 'Contract', 'Texas', '🇺🇸 United States of America'),
+        item('Acme: Executive Assistant', 'Full-Time', 'Anywhere in the World'),
     ].join('')}</rss>`);
     assert.equal(ok.title, 'Senior Creative & Web Designer');
     assert.equal(ok.author, 'Breakthrough Design Group');
@@ -202,6 +213,7 @@ test('We Work Remotely: contract posts open to the US; a country list overrides 
     assert.equal(fullTime.drop, 'job type Full-Time');
     assert.equal(serbia.drop, 'location 🇷🇸 Serbia');
     assert.equal(us.drop, undefined);
+    assert.deepEqual([assistant.drop, assistant.employee, us.employee], [undefined, 'Full-Time', undefined]);
 });
 
 test('posted dates: one UTC format for every board, null when there is none', () => {
@@ -277,11 +289,27 @@ test('closed-job checks: YT Jobs status, Casting Call Club gate and deadlines, B
     }
 });
 
+test('vaJob: which employee jobs reach the AI; feedProfessions: they are filed under virtual-assistant or not at all', () => {
+    for (const t of ['Virtual Assistant', 'Customer Support Advocate', 'Remote Data Entry Specialist (Typist)', 'Executive Assistant, Office of the CFO',
+        'Bookkeeper & Admin Support Specialist', 'Lead Generation Virtual Assistant', 'Data Entry Specialist - Medical Records',
+        'National Client Services Representative']) assert.ok(vaJob(t), t);
+    for (const t of ['Senior Executive Assistant', 'Sr. Customer Service Representative', 'Customer Support Manager', 'Certified Medical Assistant',
+        'Clinical Assistant', 'Virtual Sales Assistants', 'Assistant Professor', 'Team Lead, Customer Support', 'Software Engineer']) assert.ok(!vaJob(t), t);
+    const post = (extra: object) => ({ hint: [], ...extra }) as never;
+    assert.deepEqual(feedProfessions(post({}), ['qa', 'virtual-assistant']), ['qa', 'virtual-assistant']);
+    assert.deepEqual(feedProfessions(post({ employee: 'Full-Time' }), ['qa', 'virtual-assistant']), ['virtual-assistant']);
+    assert.deepEqual(feedProfessions(post({ employee: 'Full-Time' }), ['developer']), []);
+    assert.deepEqual(feedProfessions(post({ hint: ['writer'] }), ['developer']), ['writer']);
+});
+
 test('feed rules: full-time or on-site VA jobs go, a VA side tag goes, junk titles get the AI title', async () => {
     const { withoutEmployeeVA, junkTitle } = await import('../ai/scorer.js');
     const s = (professions: string[]) => ({ isJob: true, professions, score: 8, matchScore: 80, confidence: 1, summary: '', analysis: {} as never, method: 'ai' as const, reason: '' }) as never;
     assert.equal(withoutEmployeeVA(s(['virtual-assistant']), 'Executive Assistant. Job Type: Full-time. Salary: $1.3K/month').score, 1);
     assert.equal(withoutEmployeeVA(s(['virtual-assistant']), 'Hiring an on-site Executive Assistant').score, 1);
+    // on a job board (third argument) the full-time remote one stays, the on-site one still goes
+    assert.equal(withoutEmployeeVA(s(['virtual-assistant']), 'Executive Assistant. Job Type: Full-time. Salary: $1.3K/month', true).score, 8);
+    assert.equal(withoutEmployeeVA(s(['virtual-assistant']), 'Hiring an on-site Executive Assistant', true).score, 1);
     assert.equal(withoutEmployeeVA(s(['virtual-assistant']), 'Property manager VA, part time to full time hours available, $8-10/hr').score, 8);
     assert.deepEqual((withoutEmployeeVA(s(['video-editor', 'virtual-assistant']), 'Full-time video editor and assistant') as { professions: string[] }).professions, ['video-editor']);
     for (const t of ['Hiring', 'Help 🥹', '[Hiring] $50 Budget', 'Eureka', "I'm hiring, someone interested??"]) assert.ok(junkTitle(t), t);

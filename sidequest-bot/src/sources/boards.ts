@@ -12,6 +12,8 @@ import type { JobSource, Profession, RawPost } from '../types.js';
 export interface BoardPost extends RawPost {
     hint: Profession[];
     drop?: string;
+    /** The board's job type when it is no gig type (full-time, or none stated): the post is for the virtual-assistant feed only. */
+    employee?: string;
 }
 
 export interface Board {
@@ -25,6 +27,16 @@ const UA = 'SideQuestBoard/1.0 (+https://sidequestboard.app)';
 const GAP_MS = 1500;
 let lastRequest = 0;
 export const MAX_AGE_MS = 72 * 3_600_000; // boards keep posts open for weeks; older ones were seen before or are going stale
+
+// Owner 2026-11-17: the virtual-assistant feed also lists remote employee jobs, full-time included (index-boards.ts labels
+// them "Full-time"). Every other profession still drops them. The title only decides what the AI gets to read: the AI still
+// rules out on-site work, staffing firms and jobs limited to one country other than the US.
+const VA_TITLE = /\b(virtual|executive|administrative|admin|personal|office|operations|booking|research|accounting)\s+assistants?\b|^\s*assistant\b|data[- ]entry|bookkeep|receptionist|\bscheduler\b|transcri(ber|ption)|\bvirtual\b|\bVA\b|\bcustomer (support|service|care|experience|advocate)\b|\bchat (support|agent)|\b(support|services?|care) (agent|representative|rep|specialist|associate|advisor|advocate)\b|\badmin(istrative)? (support|coordinator|specialist|associate|officer)\b/i;
+const NOT_VA_TITLE = /\b(manager|director|head|lead(?:er)?(?! gen)|principal|senior|sr|vp|chief|supervisor|engineer|architect|developer|analyst|professor|faculty|teacher|tutor|nurse|physician|therap\w*|pharmac\w*|dental|clinical|certified|medical assistants?|counsel\w*|controller|accountant|insurance|claims|sales)\b/i;
+export const vaJob = (title: string): boolean => VA_TITLE.test(title) && !NOT_VA_TITLE.test(title);
+/** The professions a board post is filed under: the board's own, else the AI's. An employee job: virtual-assistant or nothing. */
+export const feedProfessions = (post: BoardPost, scored: Profession[]): Profession[] =>
+    post.hint.length ? post.hint : post.employee ? scored.filter((p) => p === 'virtual-assistant') : scored;
 const older = (post: BoardPost): boolean => !!post.postedAt && Date.now() - Date.parse(post.postedAt) > MAX_AGE_MS;
 
 async function getOnce(url: string, headers: Record<string, string> = {}): Promise<string> {
@@ -239,7 +251,8 @@ export function parseHubstaff(js: string): BoardPost[] {
             subreddit: null,
             postedAt: hubstaffTime(pick(/data-original-title="([^"]+)"/)),
             hint: [],
-            drop: type === 'full_time' ? 'full-time'
+            employee: type === 'full_time' ? 'full-time' : undefined,
+            drop: type === 'full_time' && !vaJob(title) ? 'full-time'
                 : /commission[- ]only|uncapped commission|\b(language|english|esl) (teacher|tutor)/i.test(`${title} ${bio}`) ? 'commission-only sales or language teaching'
                 : undefined,
         };
@@ -468,7 +481,8 @@ export function parseCareers(ats: keyof typeof ATS, board: string, company: stri
         subreddit: null,
         postedAt: o.postedAt,
         hint: [],
-        drop: GIG_TYPE.test(o.type) ? undefined : `job type ${o.type}`,
+        employee: GIG_TYPE.test(o.type) ? undefined : o.type,
+        drop: GIG_TYPE.test(o.type) || vaJob(o.title) ? undefined : `job type ${o.type}`,
     }));
 }
 
@@ -508,6 +522,9 @@ const HZ_QUERIES = [
 const AI_VENDORS = /^(micro1|mercor|xperteez|innodata|welo global|imerit|outlier|dataannotation|alignerr|invisible|turing|telus|appen|scale ai|remotasks|toloka|prolific|yo ai labs|lifted|labelbox|opentrain)\b/i;
 const AI_TITLES = /\b(ai train\w*|ai tutor|annotat\w*|data label\w*|rater|search engine evaluator|bilingual expert)\b|expert, remote- contract/i;
 const aiRecruiting = (company: string, title: string): boolean => AI_VENDORS.test(company) || AI_TITLES.test(title);
+// Recruiters that fill US companies' assistant jobs with staff abroad and list them as "United States" (2026-11-17: 5 of the 18
+// full-time assistant posts). The AI only calls them a staffing firm when the text mentions the client.
+const STAFFING_FIRMS = /^(pavago|job duck)\b/i;
 const US_OFFSETS = [-5, -6, -7, -8, -9, -10];
 
 interface HzJob {
@@ -532,26 +549,37 @@ export function parseHimalayas(json: string): BoardPost[] {
             subreddit: null,
             postedAt: new Date(j.pubDate * 1000).toISOString(), // "last updated"
             hint: [],
+            employee: /full/i.test(j.employmentType) ? j.employmentType : undefined,
             drop: j.expiryDate * 1000 < Date.now() ? 'expired'
+                : /full/i.test(j.employmentType) && !vaJob(j.title) ? 'full-time'
                 : places.length && !places.includes('United States') ? `location ${places.join(', ')}`
                 : zones.length && !zones.some((z) => US_OFFSETS.includes(z)) ? `time zones ${zones.join(', ')}`
+                : STAFFING_FIRMS.test(j.companyName) ? 'staffing firm'
                 : aiRecruiting(j.companyName, j.title) ? 'AI-training recruiting'
                 : undefined,
         };
     });
 }
 
+const HZ_EMPLOYEE_QUERIES = ['assistant', 'customer support', 'customer service', 'data entry'];
+
 const himalayas: Board = {
     name: 'Himalayas',
     async list() {
         const posts = new Map<string, BoardPost>(); // one job can match several queries
-        for (const q of HZ_QUERIES) {
-            for (let page = 1; page <= 3; page++) { // country=US includes worldwide jobs
-                const params = { q, employment_type: 'Contractor,Part Time,Temporary', country: 'US', sort: 'recent', page: String(page) };
+        const search = async (q: string, employment_type: string, pages: number): Promise<void> => {
+            for (let page = 1; page <= pages; page++) { // country=US includes worldwide jobs
+                const params = { q, employment_type, country: 'US', sort: 'recent', page: String(page) };
                 const batch = parseHimalayas(await get(`https://himalayas.app/jobs/api/search?${new URLSearchParams(params)}`, { Accept: 'application/json' }));
                 batch.forEach((post) => posts.set(post.sourceId, post));
                 if (batch.length < 20 || batch.some(older)) break; // mostly newest first: the next page is older still
             }
+        };
+        for (const q of HZ_QUERIES) await search(q, 'Contractor,Part Time,Temporary', 3);
+        try { // full-time jobs, for the virtual-assistant feed (vaJob). 2 pages cover 20 h or more of new posts (2026-11-17); a run comes every 3 h
+            for (const q of HZ_EMPLOYEE_QUERIES) await search(q, 'Full Time', 2);
+        } catch (error) { // a rate limit on this extra pass must not cost the gigs found above
+            console.error(`[boards]    ⚠️ Himalayas full-time pass: ${error instanceof Error ? error.message : error}`);
         }
         return [...posts.values()];
     },
@@ -585,7 +613,8 @@ export function parseJobicy(json: string): { posts: BoardPost[]; next: string | 
                 subreddit: null,
                 postedAt: iso(j.pubDate),
                 hint: [],
-                drop: !GIG_TYPE.test(type) ? `job type ${type}` : aiRecruiting(company, title) ? 'AI-training recruiting' : undefined,
+                employee: GIG_TYPE.test(type) ? undefined : type,
+                drop: !GIG_TYPE.test(type) && !vaJob(title) ? `job type ${type}` : aiRecruiting(company, title) ? 'AI-training recruiting' : undefined,
             };
         }),
     };
@@ -629,7 +658,8 @@ export function parseWeWorkRemotely(xml: string): BoardPost[] {
             subreddit: null,
             postedAt: iso(field(item, 'pubDate')),
             hint: [],
-            drop: !GIG_TYPE.test(type) ? `job type ${type || 'not stated'}`
+            employee: GIG_TYPE.test(type) ? undefined : type || 'not stated',
+            drop: !GIG_TYPE.test(type) && !vaJob(title) ? `job type ${type || 'not stated'}`
                 : !US_OR_ANYWHERE.test(where) ? `location ${where}`
                 : aiRecruiting(company, title) ? 'AI-training recruiting'
                 : undefined,

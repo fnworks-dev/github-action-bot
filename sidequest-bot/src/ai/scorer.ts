@@ -39,7 +39,7 @@ Professions:
 - writer: copywriting, content, technical, script writing
 - audio: sound design, music, mixing
 - qa: testing, QA
-- virtual-assistant: admin, scheduling, inbox, data entry, bookkeeping, customer or chat support for a business (never adult-content "chatter" work; remote freelance or part-time only: a full-time, salaried, on-site or hybrid assistant job scores 2)
+- virtual-assistant: admin, scheduling, inbox, data entry, bookkeeping, customer or chat support for a business (never adult-content "chatter" work; {vaRule})
 List the main profession first: the work the post mostly pays for. Add another only if the post also pays for that work as a
 separate role or deliverable; a skill that helps the main work doesn't count (a video editor who writes captions is ["video-editor"],
 a YouTube channel designer is ["artist"]).
@@ -85,10 +85,13 @@ const BOARD_RULES = `
    per-project or fixed-fee work, or hourly work under about 30 hours a week. "Pay not listed" alone is fine.
    An agency or studio hiring freelancers for its own client work (content sites, design agencies, translation agencies building a
    pool of freelance translators) is NOT a staffing firm. Translation, editing and eLearning or instructional writing count as writer.
+   One exception, for virtual-assistant work only (admin, data entry, bookkeeping, customer or chat support): a remote job
+   is a side quest even when it is full-time, salaried, W-2 or has benefits. "full-time" and "employee" below never apply
+   to it; every other label still does. If such a job is full-time, "timeline_signal" must be exactly "Full-time".
    NOT a side quest (name the first that applies):
-   - "full-time": full-time, 30-40+ hours a week, an annual salary, a full-time contract (e.g. 6 months at 40 h/week),
+   - "full-time" (not virtual-assistant work): full-time, 30-40+ hours a week, an annual salary, a full-time contract (e.g. 6 months at 40 h/week),
      or a fixed-length contract ("12+ months", "24 months") that states no part-time hours;
-   - "employee": the post itself says this role is W-2, on payroll, an employee, or gets benefits (shifts: call centers, nurses,
+   - "employee" (not virtual-assistant work): the post itself says this role is W-2, on payroll, an employee, or gets benefits (shifts: nurses,
      faculty, student workers, seasonal or temp staff). Benefits offered only to full-time staff don't count;
    - "staffing": a staffing firm, consultancy or recruiter placing someone with its client ("our client is seeking", a client
      name, W2/C2C, visa terms, "contingent on contract award");
@@ -124,7 +127,7 @@ function extractJson(text: string): Record<string, unknown> {
     return JSON.parse(cleaned.slice(start, end + 1));
 }
 
-export function parseScore(raw: string, post: RawPost): JobScore {
+export function parseScore(raw: string, post: RawPost, board = false): JobScore {
     const p = extractJson(raw);
     const professions = strList(p.professions).filter((x): x is Profession =>
         VALID_PROFESSIONS.includes(x as Profession));
@@ -152,16 +155,18 @@ export function parseScore(raw: string, post: RawPost): JobScore {
         matchScore: clamp(p.match_score, 0, 100, score * 10),
         method: 'ai',
         reason: nullableStr(p.reason) || '',
-    }, `${post.title}\n${post.content ?? ''}`);
+    }, `${post.title}\n${post.content ?? ''}`, board);
 }
 
 // A full-time, salaried or on-site assistant job is not a side gig (dashboard feedback 2026-11-07); "part-time or
 // full-time" offers stay. VA as the main profession: the job goes (score 1); as a side tag: only the tag goes.
-// ponytail: a keyword check, so "not full-time" also drops; same rule in job-fetcher {twitter,discord}-scraper src/ai/scorer.ts.
+// On a job board (board = true) a full-time remote assistant job stays (owner 2026-11-17; index-boards.ts labels it "Full-time"):
+// the board rules keep out staffing firms and jobs limited to another country, which a Reddit post is not checked for.
+// ponytail: a keyword check, so "not full-time" also drops; job-fetcher {twitter,discord}-scraper src/ai/scorer.ts have the same rule, without the job-board part.
 const FULL_TIME = /\bfull[- ]?time\b|\b(?:40|forty)\+?\s*(?:hours|hrs)\b|\bsalary\b/i;
 const ON_SITE = /\bon-?site\b|\bin[- ](?:office|person)\b|\bhybrid\b/i;
-export function withoutEmployeeVA(s: JobScore, text: string): JobScore {
-    const employee = ON_SITE.test(text) || (FULL_TIME.test(text) && !/\bpart[- ]?time\b/i.test(text));
+export function withoutEmployeeVA(s: JobScore, text: string, board = false): JobScore {
+    const employee = ON_SITE.test(text) || (!board && FULL_TIME.test(text) && !/\bpart[- ]?time\b/i.test(text));
     if (!employee || !s.professions.includes('virtual-assistant')) return s;
     if (s.professions[0] === 'virtual-assistant') return { ...s, score: 1, matchScore: 0, reason: 'full-time or on-site assistant job' };
     return { ...s, professions: s.professions.filter((p) => p !== 'virtual-assistant') };
@@ -204,12 +209,16 @@ export function keywordScore(post: RawPost): JobScore {
     };
 }
 
+const VA_RULE = 'remote freelance or part-time only: a full-time, salaried, on-site or hybrid assistant job scores 2';
+const VA_RULE_BOARDS = 'remote only, full-time and salaried jobs included: an on-site or hybrid assistant job scores 2';
+
 /** board = the job board's display name for posts from sources/boards.ts; Reddit posts leave it out. */
 export async function scoreJob(post: RawPost, board?: string): Promise<JobScore> {
     if (hasAIProvider()) {
         const prompt = PROMPT
             .replace('{platform}', board ? 'job board' : 'Reddit')
             .replace('{boardRules}', board ? BOARD_RULES : '')
+            .replace('{vaRule}', board ? VA_RULE_BOARDS : VA_RULE)
             .replaceAll('{where}', board || `r/${post.subreddit || 'unknown'}`)
             .replace('{title}', post.title)
             .replace('{content}', (post.content || '(no content)').slice(0, 6000));
@@ -220,7 +229,7 @@ export async function scoreJob(post: RawPost, board?: string): Promise<JobScore>
                 maxOutputTokens: 4096, // gemini-2.5-flash thinks ~2-3k tokens before answering; 2048 cut its JSON off
                 taskLabel: 'job scoring',
             });
-            return parseScore(raw, post);
+            return parseScore(raw, post, !!board);
         } catch (error) {
             console.warn(`⚠️ AI scoring failed, keyword fallback: ${error instanceof Error ? error.message : error}`);
         }

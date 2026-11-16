@@ -14,7 +14,7 @@ import { displayTitle, scoreJob } from './ai/scorer.js';
 import { duplicateKeys } from './dedupe.js';
 import { isNsfwContent } from './filters.js';
 import { initDb, insertJob, jobExists, markRemoved, recentJobKeys, shownJobs } from './db/turso.js';
-import { BOARDS, CLOSED_CHECKS, MAX_AGE_MS, iso, type BoardPost } from './sources/boards.js';
+import { BOARDS, CLOSED_CHECKS, MAX_AGE_MS, iso, type BoardPost, feedProfessions } from './sources/boards.js';
 import type { JobSource } from './types.js';
 
 const LOG = process.env.BOARDS_LOG || 'boards-log.jsonl';
@@ -152,10 +152,12 @@ async function run(): Promise<void> {
                 console.warn(`[boards]    ⚠️ AI scoring failed, next run retries: ${post.title.slice(0, 60)}`);
                 continue;
             }
-            const professions = post.hint.length ? post.hint : scored.professions;
+            const professions = feedProfessions(post, scored.professions);
+            if (/full/i.test(post.employee ?? '')) scored.analysis.timeline_signal = 'Full-time'; // the board's own job type; the dashboard shows it on the card
             const result = { professions, score: scored.score, summary: scored.summary, budget: scored.analysis.budget_signal };
             const ok = scored.isJob && !scored.notSideQuest && professions.length > 0 && scored.score >= MIN_SCORE;
-            const reason = scored.notSideQuest ? `not a side quest: ${scored.notSideQuest}` : scored.reason;
+            const reason = scored.notSideQuest ? `not a side quest: ${scored.notSideQuest}`
+                : post.employee && !professions.length ? 'employee job outside virtual-assistant work' : scored.reason;
             console.log(`[boards]    ${ok ? '✅' : '❌'} ${scored.score}/10 [${professions.join(',')}] ${post.title.slice(0, 60)} (${reason})`);
             if (!ok) {
                 log(post, 'reject', reason, result);
