@@ -27,16 +27,32 @@ let lastRequest = 0;
 export const MAX_AGE_MS = 72 * 3_600_000; // boards keep posts open for weeks; older ones were seen before or are going stale
 const older = (post: BoardPost): boolean => !!post.postedAt && Date.now() - Date.parse(post.postedAt) > MAX_AGE_MS;
 
-async function get(url: string, headers: Record<string, string> = {}): Promise<string> {
+async function getOnce(url: string, headers: Record<string, string> = {}): Promise<string> {
     const wait = lastRequest + GAP_MS - Date.now();
     if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
     try {
         // Blender Artists' category JSON sometimes takes over 30 s
         const res = await fetch(url, { headers: { 'User-Agent': UA, ...headers }, signal: AbortSignal.timeout(60_000) });
-        if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status} for ${url}`), { status: res.status });
+        if (!res.ok) {
+            const after = res.status === 429 ? res.headers.get('retry-after') : null;
+            throw Object.assign(new Error(`HTTP ${res.status} for ${url}`), { status: res.status, retryAfter: after ? Number(after) : undefined });
+        }
         return await res.text();
     } finally {
         lastRequest = Date.now();
+    }
+}
+
+// A 429 that says when to come back gets one more try after that wait. Himalayas allows about 20 requests a minute without an
+// API key (measured 2026-11-17: Retry-After 16-19 s) and a run asks about 45 times: until then half of all runs lost the whole board.
+async function get(url: string, headers: Record<string, string> = {}): Promise<string> {
+    try {
+        return await getOnce(url, headers);
+    } catch (error) {
+        const after = (error as { retryAfter?: number }).retryAfter;
+        if (after === undefined || !(after <= 60)) throw error; // no wait named, a date, or a long block: the board fails this run
+        await new Promise((resolve) => setTimeout(resolve, (after + 1) * 1000));
+        return getOnce(url, headers);
     }
 }
 

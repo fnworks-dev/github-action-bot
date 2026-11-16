@@ -265,6 +265,13 @@ test('closed-job checks: YT Jobs status, Casting Call Club gate and deadlines, B
         reply('', 403); await assert.rejects(CLOSED_CHECKS.jobicy!(page), /HTTP 403/);
         assert.equal(CLOSED_CHECKS.hubstaff, undefined); // 403 for a missing job: can't tell
         assert.equal(CLOSED_CHECKS.weworkremotely, undefined);
+
+        // a 429 that says when to come back is asked once more after that wait; one that doesn't fails as before
+        const replies = [new Response('', { status: 429, headers: { 'Retry-After': '0' } }), new Response('<html>')];
+        globalThis.fetch = (async () => replies.shift()!) as unknown as typeof fetch;
+        assert.equal(await CLOSED_CHECKS.wordpressjobs!(page), false);
+        assert.equal(replies.length, 0);
+        reply('', 429); await assert.rejects(CLOSED_CHECKS.jobicy!(page), /HTTP 429/);
     } finally {
         globalThis.fetch = real;
     }
