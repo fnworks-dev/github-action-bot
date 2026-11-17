@@ -310,6 +310,13 @@ test('feed rules: full-time or on-site VA jobs go, a VA side tag goes, junk titl
     // on a job board (third argument) the full-time remote one stays, the on-site one still goes
     assert.equal(withoutEmployeeVA(s(['virtual-assistant']), 'Executive Assistant. Job Type: Full-time. Salary: $1.3K/month', true).score, 8);
     assert.equal(withoutEmployeeVA(s(['virtual-assistant']), 'Hiring an on-site Executive Assistant', true).score, 1);
+    // on a board only the title and the first line count: a remote job's "connect in person" stays, a hybrid first line goes
+    const remote = 'Product Support Specialist\nfull time, remote, United States only\n\nAsync work, with team off-sites to connect in person.';
+    assert.equal(withoutEmployeeVA(s(['virtual-assistant']), remote, true).score, 8);
+    assert.equal(withoutEmployeeVA(s(['virtual-assistant']), remote).score, 1);
+    assert.equal(withoutEmployeeVA(s(['virtual-assistant']), 'Executive Assistant\nFull-time, Hybrid - New York\n\nSupport our CEO.', true).score, 1);
+    for (const t of ['At NetApp, we embrace a hybrid working environment.', 'You will work 3 days a week in the office.', 'Hybrid role based in Austin.'])
+        assert.equal(withoutEmployeeVA(s(['virtual-assistant']), `Executive Assistant\nfull time, remote, United States only\n\n${t}`, true).score, 1, t);
     assert.equal(withoutEmployeeVA(s(['virtual-assistant']), 'Property manager VA, part time to full time hours available, $8-10/hr').score, 8);
     assert.deepEqual((withoutEmployeeVA(s(['video-editor', 'virtual-assistant']), 'Full-time video editor and assistant') as { professions: string[] }).professions, ['video-editor']);
     for (const t of ['Hiring', 'Help 🥹', '[Hiring] $50 Budget', 'Eureka', "I'm hiring, someone interested??"]) assert.ok(junkTitle(t), t);

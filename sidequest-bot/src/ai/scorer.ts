@@ -165,8 +165,13 @@ export function parseScore(raw: string, post: RawPost, board = false): JobScore 
 // ponytail: a keyword check, so "not full-time" also drops; job-fetcher {twitter,discord}-scraper src/ai/scorer.ts have the same rule, without the job-board part.
 const FULL_TIME = /\bfull[- ]?time\b|\b(?:40|forty)\+?\s*(?:hours|hrs)\b|\bsalary\b/i;
 const ON_SITE = /\bon-?site\b|\bin[- ](?:office|person)\b|\bhybrid\b/i;
+// On a job board the AI's board rule reads the description (hybrid or on-site scores 2), so only the title, the board's first
+// line (type, pay, place) and plain hybrid wording count here. Remote jobs' descriptions say "team off-sites to connect in
+// person" or "office hubs in Boston" (2 of 4 Dynamite Jobs rejects, 2026-11-18); the AI let "a hybrid working environment" through.
+const HYBRID = /\bhybrid (?:role|position|schedule|work(?:ing)?(?: (?:environment|model|arrangement|schedule))?|model|environment|arrangement)\b|\b\d(?:\s*-\s*\d)? days? (?:a|per) week (?:in|at) (?:the |our |an? )?office\b|\bin[- ]office (?:expectations?|days?|requirements?|presence)\b/i;
 export function withoutEmployeeVA(s: JobScore, text: string, board = false): JobScore {
-    const employee = ON_SITE.test(text) || (!board && FULL_TIME.test(text) && !/\bpart[- ]?time\b/i.test(text));
+    const onSite = board ? ON_SITE.test(text.split('\n', 2).join('\n')) || HYBRID.test(text) : ON_SITE.test(text);
+    const employee = onSite || (!board && FULL_TIME.test(text) && !/\bpart[- ]?time\b/i.test(text));
     if (!employee || !s.professions.includes('virtual-assistant')) return s;
     if (s.professions[0] === 'virtual-assistant') return { ...s, score: 1, matchScore: 0, reason: 'full-time or on-site assistant job' };
     return { ...s, professions: s.professions.filter((p) => p !== 'virtual-assistant') };
