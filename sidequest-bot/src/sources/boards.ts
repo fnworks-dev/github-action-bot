@@ -32,7 +32,7 @@ export const MAX_AGE_MS = 72 * 3_600_000; // boards keep posts open for weeks; o
 // them "Full-time"). Every other profession still drops them. The title only decides what the AI gets to read: the AI still
 // rules out on-site work, staffing firms and jobs limited to one country other than the US.
 const VA_TITLE = /\b(virtual|executive|administrative|admin|personal|office|operations|booking|research|accounting)\s+assistants?\b|^\s*assistant\b|data[- ]entry|bookkeep|receptionist|\bscheduler\b|transcri(ber|ption)|\bvirtual\b|\bVA\b|\bcustomer (support|service|care|experience|advocate)\b|\bchat (support|agent)|\b(support|services?|care) (agent|representative|rep|specialist|associate|advisor|advocate)\b|\badmin(istrative)? (support|coordinator|specialist|associate|officer)\b/i;
-const NOT_VA_TITLE = /\b(manager|director|head|lead(?:er)?(?! gen)|principal|senior|sr|vp|chief|supervisor|engineer|architect|developer|analyst|professor|faculty|teacher|tutor|nurse|physician|therap\w*|pharmac\w*|dental|clinical|certified|medical assistants?|counsel\w*|controller|accountant|insurance|claims|sales)\b/i;
+const NOT_VA_TITLE = /\b(manager|director|head|lead(?:er)?(?! gen)|principal|senior|sr|[esa]?vp|chief|supervisor|engineer|architect|developer|analyst|professor|faculty|teacher|tutor|nurse|physician|therap\w*|pharmac\w*|dental|clinical|certified|medical assistants?|counsel\w*|controller|accountant|insurance|claims|sales|technical|help ?desk)\b/i;
 export const vaJob = (title: string): boolean => VA_TITLE.test(title) && !NOT_VA_TITLE.test(title);
 /** The professions a board post is filed under: the board's own, else the AI's. An employee job: virtual-assistant or nothing. */
 export const feedProfessions = (post: BoardPost, scored: Profession[]): Profession[] =>
@@ -561,7 +561,8 @@ export function parseHimalayas(json: string): BoardPost[] {
     });
 }
 
-const HZ_EMPLOYEE_QUERIES = ['assistant', 'customer support', 'customer service', 'data entry'];
+// The last four found 16 assistant or support jobs in 72 h that the first four missed (2026-11-18)
+const HZ_EMPLOYEE_QUERIES = ['assistant', 'customer support', 'customer service', 'data entry', 'support specialist', 'administrative', 'customer experience', 'virtual'];
 
 const himalayas: Board = {
     name: 'Himalayas',
@@ -676,6 +677,57 @@ const weworkremotely: Board = {
     },
 };
 
+// --- Dynamite Jobs: remote jobs at small online businesses, mostly assistant, support and operations work, 98% full-time.
+// No feed or API. robots.txt allows job pages, and this sitemap lists the newest 500 jobs with a lastmod. Measured 2026-11-18:
+// 17 of the 500 pass vaJob, 11 of them from the last 72 h, half of those open to the US. Only those pages are read, once each.
+// ponytail: the slug filter also skips its rare part-time gigs in other fields; widen it if those ever matter.
+const DJ_SITEMAP = 'https://dynamitejobs.com/sitemap/jobs-of-category.xml';
+const AGENCY = /\b(staffing|recruit\w*|outsourc\w*)\b/i;
+
+export function parseDynamiteSitemap(xml: string): BoardPost[] {
+    return [...xml.matchAll(/<loc>(https:\/\/dynamitejobs\.com\/company\/([^/<]+)\/remote-job\/([^<]+))<\/loc>\s*<lastmod>([^<]+)<\/lastmod>/g)]
+        .map(([, url, company, slug, lastmod]): BoardPost => ({
+            source: 'dynamitejobs', sourceId: url, sourceUrl: url, title: slug.replace(/-\d+$/, '').replace(/-/g, ' '),
+            content: null, author: company, subreddit: null, postedAt: decode(lastmod), hint: [], // lastmod writes + as &#43;
+        }))
+        .filter((post) => vaJob(post.title));
+}
+
+interface DjPosting {
+    title: string; description: string; datePosted?: string; validThrough?: string; employmentType?: string | string[];
+    hiringOrganization?: { name?: string }; applicantLocationRequirements?: { name?: string } | { name?: string }[];
+}
+
+export function parseDynamiteJob(html: string, post: BoardPost, now = Date.now()): Partial<BoardPost> {
+    const j = jobPostings(html)[0] as DjPosting | undefined;
+    if (!j) throw new Error('no JobPosting on the page (page changed?)');
+    const title = j.title.replace(/,\s*Remote Job\s*$/i, '');
+    const company = j.hiringOrganization?.name || post.author || '';
+    const type = [j.employmentType ?? ''].flat().join(', ').replace(/_/g, ' ').toLowerCase();
+    const places = [j.applicantLocationRequirements ?? []].flat().map((p) => p.name ?? '').filter(Boolean);
+    const where = !places.length ? 'remote, worldwide' : places.length === 1 ? `remote, ${places[0]} only` : `remote, ${places.length} countries`;
+    const employee = GIG_TYPE.test(type) ? undefined : type || 'not stated';
+    return {
+        title,
+        author: company,
+        postedAt: j.datePosted ?? post.postedAt,
+        content: `${type || 'job type not stated'}, ${where}\n\n${text(j.description)}`,
+        employee,
+        drop: Date.parse(j.validThrough ?? '') < now ? 'expired'
+            : employee && !vaJob(title) ? 'full-time'
+            : places.length && !places.includes('United States') ? `location ${places.slice(0, 3).join(', ')}${places.length > 3 ? ', ...' : ''}`
+            : employee && (STAFFING_FIRMS.test(company) || AGENCY.test(company)) ? 'staffing firm'
+            : aiRecruiting(company, title) ? 'AI-training recruiting'
+            : undefined,
+    };
+}
+
+const dynamitejobs: Board = {
+    name: 'Dynamite Jobs',
+    list: async () => parseDynamiteSitemap(await get(DJ_SITEMAP)),
+    detail: async (post) => parseDynamiteJob(await get(post.sourceUrl), post),
+};
+
 /** Himalayas' terms: closed jobs come off our board. Its job API answers 410 when closed, 404 when gone, 200 when open. */
 export async function himalayasClosed(jobUrl: string): Promise<boolean> {
     const path = jobUrl.match(/^https:\/\/himalayas\.app\/companies\/([^/]+)\/jobs\/([^/?#]+)$/); // our source_id (the job's guid)
@@ -727,6 +779,19 @@ export async function castingCallClosed(url: string, now = Date.now()): Promise<
     return ends.every((end) => Number.isFinite(end) && end < now);
 }
 
+/** Dynamite Jobs answers 404 for a removed job; a live page's JobPosting ends at validThrough, 30 days after posting. */
+export async function dynamiteClosed(url: string, now = Date.now()): Promise<boolean> {
+    let html: string;
+    try {
+        html = await get(url);
+    } catch (error) {
+        if (gone(error)) return true;
+        throw error;
+    }
+    const end = Date.parse(jobPostings(html)[0]?.validThrough ?? '');
+    return Number.isFinite(end) && end < now;
+}
+
 /** YT Jobs' web page is an app shell (200 for any id); its job API answers 404 for a missing job and a status otherwise. */
 export async function ytJobClosed(id: string): Promise<boolean> {
     let json: string;
@@ -767,9 +832,10 @@ export const CLOSED_CHECKS: Partial<Record<JobSource, (job: { sourceId: string; 
     problogger: (job) => pageGone(job.sourceUrl),
     careers: (job) => pageGone(job.sourceUrl),
     jobicy: (job) => pageGone(job.sourceUrl),
+    dynamitejobs: (job) => dynamiteClosed(job.sourceUrl),
 };
 
 /** In fetch order: the professions the board needs most first (voice, writer, VA, audio). */
 export const BOARDS: Record<Exclude<JobSource, 'reddit'>, Board> = {
-    castingcall, ytjobs, hubstaff, workwithindies, blenderartists, wordpressjobs, problogger, careers, himalayas, jobicy, weworkremotely,
+    castingcall, ytjobs, hubstaff, workwithindies, blenderartists, wordpressjobs, problogger, careers, himalayas, jobicy, weworkremotely, dynamitejobs,
 };

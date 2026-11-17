@@ -43,7 +43,8 @@ export type JobSource =
     | 'careers'
     | 'himalayas'
     | 'jobicy'
-    | 'weworkremotely';
+    | 'weworkremotely'
+    | 'dynamitejobs';
 
 // Raw post from Reddit RSS/API or a job board
 export interface RawPost {

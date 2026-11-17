@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-    BOARDS, CLOSED_CHECKS, feedProfessions, vaJob, blenderArtistsClosed, castingCallClosed, himalayasClosed, iso, ytJobClosed, parseCareers, parseCastingCall, parseHimalayas, parseHubstaff, parseJobicy, parseProblogger, parseWeWorkRemotely, parseWordpressJobs, parseWorkWithIndies, parseYtFeed, parseYtJob, text,
+    BOARDS, CLOSED_CHECKS, parseDynamiteSitemap, parseDynamiteJob, dynamiteClosed, feedProfessions, vaJob, blenderArtistsClosed, castingCallClosed, himalayasClosed, iso, ytJobClosed, parseCareers, parseCastingCall, parseHimalayas, parseHubstaff, parseJobicy, parseProblogger, parseWeWorkRemotely, parseWordpressJobs, parseWorkWithIndies, parseYtFeed, parseYtJob, text,
 } from './boards.js';
 import { isNsfwContent } from '../filters.js';
 
@@ -314,4 +314,50 @@ test('feed rules: full-time or on-site VA jobs go, a VA side tag goes, junk titl
     assert.deepEqual((withoutEmployeeVA(s(['video-editor', 'virtual-assistant']), 'Full-time video editor and assistant') as { professions: string[] }).professions, ['video-editor']);
     for (const t of ['Hiring', 'Help 🥹', '[Hiring] $50 Budget', 'Eureka', "I'm hiring, someone interested??"]) assert.ok(junkTitle(t), t);
     for (const t of ['[Hiring] cold caller', 'DUSK - A Supernatural Mystery', '𝗤𝘂𝗮𝗹𝗶𝘁𝘆 𝗔𝘀𝘀𝘂𝗿𝗮𝗻𝗰𝗲 𝗘𝗻𝗴𝗶𝗻𝗲𝗲𝗿']) assert.ok(!junkTitle(t), t);
+});
+
+test('vaJob: no executives, no IT support', () => {
+    for (const t of ['SVP, Customer Experience and Service Operations', 'Technical IT Support Specialist - Staff', 'Help Desk Support Specialist']) assert.ok(!vaJob(t), t);
+    assert.ok(vaJob('Customer Support Specialist - Risk'));
+});
+
+test('Dynamite Jobs: assistant and support slugs from the sitemap; the page decides type, US, staffing and expiry; 404 or past validThrough is closed', async () => {
+    const xml = '<url><loc>https://dynamitejobs.com/skill/remote-customer-support-jobs</loc><lastmod>2026-11-17</lastmod></url>'
+        + '<url><loc>https://dynamitejobs.com/company/acme/remote-job/executive-assistant-2</loc>\n<lastmod>2026-11-17T10:00:00&#43;00:00</lastmod></url>'
+        + '<url><loc>https://dynamitejobs.com/company/acme/remote-job/account-executive-saas-b2b</loc><lastmod>2026-11-17</lastmod></url>';
+    const [post, ...rest] = parseDynamiteSitemap(xml);
+    assert.equal(rest.length, 0);
+    assert.deepEqual([post.title, post.author, post.postedAt, post.sourceUrl],
+        ['executive assistant', 'acme', '2026-11-17T10:00:00+00:00', 'https://dynamitejobs.com/company/acme/remote-job/executive-assistant-2']);
+
+    const page = (extra: object) => `<script type="application/ld+json">${JSON.stringify({ '@type': 'JobPosting', title: 'Executive Assistant, Remote Job',
+        description: '<p>Inbox and calendar.</p>', datePosted: '2026-11-17', validThrough: '2026-12-17', employmentType: 'FULL_TIME',
+        hiringOrganization: { name: 'Acme Co' }, applicantLocationRequirements: [{ '@type': 'Country', name: 'United States' }], ...extra })}</script>`;
+    const now = Date.parse('2026-11-18T00:00:00Z');
+    const job = (extra: object = {}) => parseDynamiteJob(page(extra), post, now);
+    const ok = job();
+    assert.deepEqual([ok.title, ok.author, ok.employee, ok.postedAt, ok.drop], ['Executive Assistant', 'Acme Co', 'full time', '2026-11-17', undefined]);
+    assert.match(ok.content ?? '', /^full time, remote, United States only\n\nInbox and calendar\./);
+    assert.equal(job({ applicantLocationRequirements: [{ name: 'Argentina' }, { name: 'Brazil' }] }).drop, 'location Argentina, Brazil');
+    assert.equal(job({ applicantLocationRequirements: [{ name: 'Canada' }, { name: 'United States' }] }).drop, undefined);
+    assert.equal(job({ applicantLocationRequirements: undefined }).drop, undefined); // no list: open to anyone
+    assert.equal(job({ title: 'Account Executive, Remote Job' }).drop, 'full-time');
+    const gig = job({ title: 'Video Editor', employmentType: 'PART_TIME' }); // a gig: the AI files it
+    assert.deepEqual([gig.drop, gig.employee], [undefined, undefined]);
+    assert.equal(job({ hiringOrganization: { name: 'Bridgeway Global Staffing' } }).drop, 'staffing firm');
+    assert.equal(job({ validThrough: '2026-11-10' }).drop, 'expired');
+    assert.throws(() => parseDynamiteJob('<html></html>', post, now), /no JobPosting/);
+
+    const real = globalThis.fetch;
+    const reply = (body: string, status = 200) => { globalThis.fetch = (async () => new Response(body, { status })) as unknown as typeof fetch; };
+    try {
+        reply('', 404); assert.equal(await dynamiteClosed(post.sourceUrl, now), true);
+        reply(page({})); assert.equal(await dynamiteClosed(post.sourceUrl, now), false);
+        reply(page({ validThrough: '2026-11-10' })); assert.equal(await dynamiteClosed(post.sourceUrl, now), true);
+        reply('<html>no posting</html>'); assert.equal(await dynamiteClosed(post.sourceUrl, now), false);
+        reply('', 403); await assert.rejects(dynamiteClosed(post.sourceUrl, now), /HTTP 403/);
+    } finally {
+        globalThis.fetch = real;
+    }
+    assert.ok(BOARDS.dynamitejobs.detail && CLOSED_CHECKS.dynamitejobs);
 });
