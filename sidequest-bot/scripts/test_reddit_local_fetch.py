@@ -1,19 +1,10 @@
 import json, os, sys, unittest
 from datetime import datetime, timezone
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(__file__))
-from reddit_local_fetch import Browser, Channel, HttpError, fetch_all, mark_nsfw, parse_atom  # noqa: E402
-
-ATOM = b'''<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom">
-<entry><author><name>/u/buyer1</name></author><id>t3_1abc23</id>
-<content type="html">&lt;!-- SC_OFF --&gt;&lt;div class=&quot;md&quot;&gt;&lt;p&gt;Need a VA, $15/hr &amp;amp; flexible&lt;/p&gt;
-&lt;ul&gt;&lt;li&gt;email&lt;/li&gt;&lt;/ul&gt;&lt;/div&gt;&lt;!-- SC_ON --&gt; &amp;#32; submitted by &lt;a href=&quot;x&quot;&gt; /u/buyer1 &lt;/a&gt;</content>
-<link href="https://www.reddit.com/r/forhire/comments/1abc23/hiring_va/"/><published>2026-10-10T01:00:18+00:00</published>
-<title>[Hiring] VA</title></entry>
-<entry><id>t3_link99</id><content type="html">&lt;table&gt;image&lt;/table&gt;</content>
-<link href="https://www.reddit.com/r/forhire/comments/link99/x/"/><updated>2026-10-10T02:00:00+00:00</updated><title>Link post</title></entry>
-</feed>'''
-
+import reddit_local_fetch as rlf  # noqa: E402
+from reddit_local_fetch import Browser, Channel, HttpError, fetch_all, fill_from_arctic  # noqa: E402
 
 class Fake(Channel):
     reddit = False
@@ -31,17 +22,6 @@ class Fake(Channel):
 
 
 class Tests(unittest.TestCase):
-    def test_parse_atom(self):
-        self_post, link_post = parse_atom(ATOM)
-        self.assertEqual(self_post['id'], '1abc23')
-        self.assertEqual(self_post['author'], 'buyer1')
-        self.assertEqual(self_post['permalink'], '/r/forhire/comments/1abc23/hiring_va/')
-        self.assertEqual(self_post['selftext'], 'Need a VA, $15/hr & flexible\n\n- email')
-        self.assertTrue(self_post['is_self'])
-        self.assertEqual(self_post['created_utc'], datetime(2026, 10, 10, 1, 0, 18, tzinfo=timezone.utc).timestamp())
-        self.assertFalse(link_post['is_self'])
-        self.assertEqual(link_post['selftext'], '')
-
     def test_failover_order(self):
         browser = Fake('browser', lambda sub: TimeoutError('slow') if sub == 'two' else ['b'])
         rss = Fake('rss', lambda sub: HttpError(500) if sub == 'two' else ['r'])
@@ -51,9 +31,9 @@ class Tests(unittest.TestCase):
         self.assertEqual(rss.calls, ['two'])                 # only asked when the browser failed
         self.assertEqual(arctic.calls, ['two'])
 
-    def test_browser_hands_out_prefetched_feeds(self):
+    def test_browser_hands_out_prefetched_listings(self):
         b = Browser()
-        b.results = {'ok': {'xml': ATOM.decode()}, 'gone': {'status': 404, 'error': 'other: page not found'},
+        b.results = {'ok': {'posts': [{'id': '1abc23'}, {'id': 'link99'}]}, 'gone': {'status': 404, 'error': 'other: page not found'},
                      'wall': {'status': 403, 'error': "blocked: You've been blocked by network security."}}
         b.stopped = 'blocked at r/wall'
         arctic = Fake('arctic', ['a'])
@@ -81,26 +61,46 @@ class Tests(unittest.TestCase):
         self.assertIn('rate limited', rss.disabled)
         self.assertTrue(all(out[s]['channel'] == 'arctic' for s in 'abcd'))
 
-    def test_mark_nsfw_from_arctic_and_fail_open(self):
+    def test_fill_from_arctic_and_fail_open(self):
         def results():
-            return {'a': {'channel': 'browser', 'posts': [{'id': 'x1', 'over_18': False}, {'id': 'x2', 'over_18': False}]},
-                    'b': {'channel': 'rss', 'posts': [{'id': 'x3', 'over_18': False}]},
-                    'c': {'channel': 'arctic', 'posts': [{'id': 'x4', 'over_18': False}]}, 'd': {'error': 'down'}}
+            return {'a': {'channel': 'browser', 'posts': [{'id': 'x1', 'over_18': False, 'selftext': 'own text'},
+                                                          {'id': 'x2', 'over_18': False, 'selftext': ''}]},
+                    'b': {'channel': 'browser', 'posts': [{'id': 'x3', 'over_18': False, 'selftext': ''}]},
+                    'c': {'channel': 'arctic', 'posts': [{'id': 'x4', 'over_18': False, 'selftext': ''}]}, 'd': {'error': 'down'}}
         urls = []
         def get(url):
             urls.append(url)
             asked = url.split('ids=')[1].split(',')
-            return json.dumps({'data': [d for d in ({'id': 'x2', 'over_18': True}, {'id': 'x3', 'over_18': False}) if d['id'] in asked]})
+            known = ({'id': 'x1', 'over_18': False, 'selftext': 'mirror text'}, {'id': 'x2', 'over_18': True, 'selftext': 'gig details'},
+                     {'id': 'x3', 'over_18': False, 'selftext': '[removed]'})
+            return json.dumps({'data': [d for d in known if d['id'] in asked]})
         r = results()
-        self.assertIn('1 flagged', mark_nsfw(r, get, chunk=2))
+        self.assertIn('1 flagged', fill_from_arctic(r, get, chunk=2))
         self.assertEqual([p['over_18'] for p in r['a']['posts'] + r['b']['posts']], [False, True, False])
-        self.assertEqual(len(urls), 2)  # x1,x2 then x3; arctic posts carry their own flag
+        # a gallery card's empty body is filled in; a card's own text and a removed body are not replaced
+        self.assertEqual([p['selftext'] for p in r['a']['posts'] + r['b']['posts']], ['own text', 'gig details', ''])
+        self.assertEqual(len(urls), 2)  # x1,x2 then x3; arctic posts carry their own flag and body
         self.assertNotIn('x4', ''.join(urls))
         def down(url):
             raise HttpError(522)
         r = results()
-        self.assertIn('failed', mark_nsfw(r, down))
+        self.assertIn('failed', fill_from_arctic(r, down))
         self.assertFalse(any(p['over_18'] for x in r.values() for p in x.get('posts', [])))
+
+    def test_arctic_retries_when_its_server_aborts(self):
+        def get(*outcomes):
+            with mock.patch.object(rlf, 'http_get', side_effect=list(outcomes)) as http:
+                try:
+                    return rlf.arctic_get('https://arctic/x', 1, wait=0), http.call_count
+                except Exception as e:
+                    return type(e).__name__, http.call_count
+        self.assertEqual(get(HttpError(422), TimeoutError('read'), b'ok'), (b'ok', 3))
+        self.assertEqual(get(HttpError(520), b'ok'), (b'ok', 2))
+        self.assertEqual(get(HttpError(400)), ('HttpError', 1))  # a bad request is not retried
+        self.assertEqual(get(*[HttpError(422)] * 3), ('HttpError', 3))  # gives up after the third try
+        with mock.patch.object(rlf.time, 'sleep') as sleep:  # a 429 waits as long as the answer says, at most 30 s
+            get(HttpError(429, headers={'x-ratelimit-reset': '7'}), HttpError(429, headers={'x-ratelimit-reset': '300'}), b'ok')
+            self.assertEqual([c.args[0] for c in sleep.call_args_list], [8.0, 30])
 
     def test_all_channels_down(self):
         down = lambda: Fake('x', TimeoutError('timed out'))

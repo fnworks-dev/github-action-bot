@@ -1,33 +1,30 @@
 #!/usr/bin/env python3
 """Fetch subreddit listings on the laptop for the SideQuest bots (GitHub runners get blocked by Reddit).
 
-Reddit answers every logged-out client on this machine with 403/429, and since 2026-11-04 every .json listing
-even when logged in ("blocked by network security"). Three channels, tried in this order per subreddit:
-  browser  the RSS feeds read through the logged-in pi-browser profile "reddit-scraper" (persistent Chromium on an
-           invisible Xvfb screen, human input, pacing) by reddit_browser_fetch.mjs, all subreddits up front
-  rss      Reddit's public RSS feed, logged out (usually rate limited after one request)
+Reddit answers every logged-out client on this machine with 403/429, since 2026-11-04 every .json listing even when
+logged in ("blocked by network security"), and it retired RSS (dark here 2026-11-18). Two channels, tried in this
+order per subreddit:
+  browser  each subreddit's New tab (the last 6 h, at least 24 posts), read through the logged-in pi-browser
+           profile "reddit-scraper" (persistent Chromium on an invisible Xvfb screen, human input) by
+           reddit_browser_fetch.mjs, all subreddits up front
   arctic   the Arctic Shift mirror (what the GitHub bots use)
 
 Usage: reddit_local_fetch.py --out FILE sub [sub ...]
 Writes {"generatedAt", "subreddits": {sub: {"channel", "posts"} | {"error"}}, "channels": {name: stats}}.
 """
-import argparse, html, json, os, random, re, signal, subprocess, sys, time
-import urllib.error, urllib.parse, urllib.request
-import xml.etree.ElementTree as ET
-from datetime import datetime
+import argparse, json, os, random, re, signal, subprocess, sys, time
+import urllib.error, urllib.request
 
 BROWSER_FETCH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'reddit_browser_fetch.mjs')
 BROWSER_WAIT = 660  # seconds; the fetcher stops itself after 540 (REDDIT_BROWSER_BUDGET_SEC) plus startup
 PIDFILE = '/tmp/sqb-reddit-bot.pids'
-UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-ATOM = '{http://www.w3.org/2005/Atom}'
 FIELDS = ('id', 'title', 'selftext', 'author', 'permalink', 'url', 'created_utc', 'is_self', 'over_18')
 
 
 class HttpError(Exception):
-    def __init__(self, status, body=''):
+    def __init__(self, status, body='', headers=None):
         super().__init__(f'HTTP {status}')
-        self.status, self.body = status, body or ''
+        self.status, self.body, self.headers = status, body or '', headers or {}
 
     @property
     def blocked(self):  # Reddit's bot wall, as opposed to a private/banned subreddit
@@ -42,39 +39,12 @@ def from_json(d):
     return {k: d.get(k) for k in FIELDS}
 
 
-def html_to_text(s):
-    s = re.sub(r'<br\s*/?>|</p>|</li>|</h\d>|</tr>|</blockquote>', '\n', s)
-    s = re.sub(r'<li[^>]*>', '- ', s)
-    s = html.unescape(re.sub(r'<[^>]+>', '', s))
-    return re.sub(r'\n{3,}', '\n\n', s).strip()
-
-
-def parse_atom(data):
-    posts = []
-    for e in ET.fromstring(data).iter(ATOM + 'entry'):
-        rid, link = e.findtext(ATOM + 'id') or '', e.find(ATOM + 'link')
-        if not rid.startswith('t3_') or link is None:
-            continue
-        url = link.get('href', '')
-        body = re.search(r'<!-- SC_OFF -->(.*?)<!-- SC_ON -->', e.findtext(ATOM + 'content') or '', re.S)
-        published = e.findtext(ATOM + 'published') or e.findtext(ATOM + 'updated') or ''
-        posts.append({
-            'id': rid[3:], 'title': e.findtext(ATOM + 'title') or '',
-            'selftext': html_to_text(body.group(1)) if body else '',
-            'author': (e.findtext(f'{ATOM}author/{ATOM}name') or '').removeprefix('/u/'),
-            'permalink': urllib.parse.urlparse(url).path, 'url': url,
-            'created_utc': datetime.fromisoformat(published).timestamp() if published else 0,
-            'is_self': bool(body), 'over_18': False,  # RSS has no NSFW flag: mark_nsfw() fills it in from Arctic Shift
-        })
-    return posts
-
-
 def http_get(url, timeout, headers):
     try:
         with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=timeout) as r:
             return r.read()
     except urllib.error.HTTPError as e:
-        raise HttpError(e.code, e.read().decode('utf-8', 'replace'))  # whole page: the wall's text comes after its CSS
+        raise HttpError(e.code, e.read().decode('utf-8', 'replace'), e.headers)  # whole page: the wall's text comes after its CSS
 
 
 class Channel:
@@ -85,24 +55,31 @@ class Channel:
         self.disabled = None
 
 
-class Rss(Channel):
-    name = 'rss'
-
-    def fetch(self, sub):
-        return parse_atom(http_get(f'https://www.reddit.com/r/{sub}/new/.rss?limit=100', 25, {'User-Agent': UA}))
+def arctic_get(url, timeout, wait=5):
+    """GET from Arctic Shift, trying twice more on what passes: 422 is their server aborting a slow query ("Timeout.
+    Maybe slow down a bit"; the maintainer says try again), it cost 0-6 subreddits a run in Nov 2026; a Cloudflare 520
+    cost half the arctic fill on 2026-11-19. Also network errors, and 429: the limit is per IP and a minute long, and
+    the answer says when it lifts (x-ratelimit-reset, seconds)."""
+    for attempt in (1, 2, 3):
+        try:
+            return http_get(url, timeout, {'User-Agent': 'SidequestBot-local/1.0'})
+        except (HttpError, OSError) as e:
+            if attempt == 3 or (isinstance(e, HttpError) and e.status < 500 and e.status not in (422, 429)):
+                raise
+            reset = e.headers.get('x-ratelimit-reset') if isinstance(e, HttpError) and e.status == 429 else None
+            time.sleep(min(float(reset) + 1, 30) if reset and reset.replace('.', '', 1).isdigit() else wait * attempt)
 
 
 class Arctic(Channel):
     name, reddit = 'arctic', False
 
     def fetch(self, sub):
-        url = f'https://arctic-shift.photon-reddit.com/api/posts/search?subreddit={sub}&limit=100'
-        data = json.loads(http_get(url, 15, {'User-Agent': 'SidequestBot-local/1.0'}))
+        data = json.loads(arctic_get(f'https://arctic-shift.photon-reddit.com/api/posts/search?subreddit={sub}&limit=100', 15))
         return [from_json(p) for p in data.get('data') or []]
 
 
 class Browser(Channel):
-    """RSS through the logged-in pi-browser profile. reddit_browser_fetch.mjs reads every subreddit up front in one
+    """New tabs through the logged-in pi-browser profile. reddit_browser_fetch.mjs reads every subreddit up front in one
     paced browser session and stops by itself when Reddit says back off; fetch() only hands out its results."""
     name, reddit = 'browser', False  # the pi-browser profile paces its own requests
 
@@ -147,28 +124,34 @@ class Browser(Channel):
         r = self.results.get(sub)
         if r is None:
             raise RuntimeError(self.stopped or 'not fetched')
-        if 'xml' not in r:
+        if 'posts' not in r:
             raise HttpError(r['status'], r['error']) if r.get('status') else RuntimeError(r['error'])
-        return parse_atom(r['xml'].encode())
+        return r['posts']
 
 
-def mark_nsfw(results, get=lambda url: http_get(url, 30, {'User-Agent': 'SidequestBot-local/1.0'}), chunk=500):
-    """Set over_18 on RSS posts from Arctic Shift, which mirrors new posts within about a minute.
-    Fails open (posts stay unflagged; the keyword filters and the AI scorer still apply). Returns a log line."""
-    posts = {p['id']: p for r in results.values() if r.get('channel') in ('browser', 'rss') for p in r['posts']}
-    ids, known, flagged = list(posts), 0, 0
+def fill_from_arctic(results, get=lambda url: arctic_get(url, 30), chunk=500):
+    """Fill in what the browser's cards lack from Arctic Shift, which mirrors new posts within about a minute: the NSFW
+    flag, and the body of image/gallery posts (their cards show only the images; most HungryArtists gigs are those).
+    Fails open (posts stay as they are; the keyword filters and the AI scorer still apply). Returns a log line."""
+    posts = {p['id']: p for r in results.values() if r.get('channel') == 'browser' for p in r['posts']}
+    ids, known, flagged, filled = list(posts), 0, 0, 0
     for i in range(0, len(ids), chunk):
         try:
-            data = json.loads(get('https://arctic-shift.photon-reddit.com/api/posts/ids?fields=id,over_18&ids=' + ','.join(ids[i:i + chunk])))
+            data = json.loads(get('https://arctic-shift.photon-reddit.com/api/posts/ids?fields=id,over_18,selftext&ids=' + ','.join(ids[i:i + chunk])))
         except Exception as e:
-            return f'nsfw: Arctic Shift failed ({e}) after {known}/{len(ids)} posts, {flagged} flagged; the rest unchecked'
+            return f'arctic fill: failed ({e}) after {known}/{len(ids)} posts, {flagged} flagged NSFW, {filled} bodies; the rest unchecked'
         for d in data.get('data') or []:
-            if d.get('id') in posts:
-                known += 1
-                if d.get('over_18'):
-                    posts[d['id']]['over_18'] = True
-                    flagged += 1
-    return f'nsfw: {flagged} flagged by Arctic Shift ({known}/{len(ids)} posts known)'
+            p = posts.get(d.get('id'))
+            if p is None:
+                continue
+            known += 1
+            if d.get('over_18'):
+                p['over_18'] = True
+                flagged += 1
+            if not p.get('selftext') and d.get('selftext') not in (None, '', '[removed]', '[deleted]'):
+                p['selftext'] = d['selftext']
+                filled += 1
+    return f'arctic fill: {flagged} flagged NSFW, {filled} bodies filled ({known}/{len(ids)} posts known)'
 
 
 def kill_group(pid, sig):
@@ -194,12 +177,11 @@ def kill_leftovers():
 
 
 def fetch_all(subs, channels, pause=lambda: time.sleep(random.uniform(2, 4)), log=print):
-    """channels: {'browser', 'rss', 'arctic'} -> Channel, tried in that order. Returns {sub: {'channel', 'posts'} | {'error'}}."""
+    """channels: {name: Channel}, tried in that order. Returns {sub: {'channel', 'posts'} | {'error'}}."""
     results = {}
     for sub in subs:
         errors = []
-        for name in ('browser', 'rss', 'arctic'):
-            ch = channels[name]
+        for name, ch in channels.items():
             if ch.disabled:
                 continue
             try:
@@ -239,11 +221,11 @@ def main():
     kill_leftovers()
     browser = Browser()
     browser.start(subs)
-    channels = {'browser': browser, 'rss': Rss(), 'arctic': Arctic()}
+    channels = {'browser': browser, 'arctic': Arctic()}
     if browser.disabled:
         print(f'⚠️  browser channel off: {browser.disabled}')
     results = fetch_all(subs, channels)
-    print(mark_nsfw(results))
+    print(fill_from_arctic(results))
     stats = {n: {'ok': c.ok, 'failed': c.failed, 'disabled': c.disabled} for n, c in channels.items()}
     ok = sum(1 for r in results.values() if 'posts' in r)
     print(f'📥 {ok}/{len(subs)} subreddits fetched | ' + ' | '.join(f'{n}: {s["ok"]} ok, {s["failed"]} failed' + (f', OFF: {s["disabled"]}' if s['disabled'] else '') for n, s in stats.items()))
