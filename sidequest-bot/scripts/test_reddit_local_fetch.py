@@ -1,4 +1,4 @@
-import json, os, sys, unittest
+import json, os, sys, tempfile, unittest
 from datetime import datetime, timezone
 from unittest import mock
 
@@ -101,6 +101,26 @@ class Tests(unittest.TestCase):
         with mock.patch.object(rlf.time, 'sleep') as sleep:  # a 429 waits as long as the answer says, at most 30 s
             get(HttpError(429, headers={'x-ratelimit-reset': '7'}), HttpError(429, headers={'x-ratelimit-reset': '300'}), b'ok')
             self.assertEqual([c.args[0] for c in sleep.call_args_list], [8.0, 30])
+
+    def test_browser_result_survives_unicode_line_separators(self):
+        # JSON.stringify leaves U+2028/U+2029/U+0085 raw and str.splitlines() splits at them: one r/hiring post with a
+        # U+2028 turned the 2026-11-19 07:18 run's browser result into "JSONDecodeError ... (char 0)".
+        with tempfile.TemporaryDirectory() as d:
+            fake = os.path.join(d, 'fake.mjs')
+            with open(fake, 'w') as f:
+                f.write("console.log('progress');\n"
+                        "console.log(JSON.stringify({subs: {x: {posts: [{id: '1', selftext: 'a\\u2028b\\u2029c\\u0085d'}]}}, stopped: null}));\n")
+            silent = os.path.join(d, 'silent.mjs')
+            open(silent, 'w').close()
+            b, b2 = Browser(), Browser()
+            with mock.patch.object(rlf, 'PIDFILE', os.path.join(d, 'pids')):
+                with mock.patch.object(rlf, 'BROWSER_FETCH', fake):
+                    b.start(['x'])
+                with mock.patch.object(rlf, 'BROWSER_FETCH', silent):
+                    b2.start(['x'])
+        self.assertIsNone(b.disabled)
+        self.assertEqual(b.fetch('x')[0]['selftext'], 'a\u2028b\u2029c\u0085d')
+        self.assertIn('no result', b2.disabled)  # a fetcher that printed nothing says so
 
     def test_all_channels_down(self):
         down = lambda: Fake('x', TimeoutError('timed out'))

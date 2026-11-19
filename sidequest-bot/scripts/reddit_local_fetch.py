@@ -98,8 +98,9 @@ class Browser(Channel):
             except subprocess.TimeoutExpired:
                 kill_group(proc.pid, signal.SIGTERM)  # it prints what it has, then closes its browser
                 out = proc.communicate(timeout=30)[0]
-            lines = out.decode('utf-8', 'replace').strip().splitlines()
-            if not lines:
+            # split('\n'), not splitlines(): post text can hold U+2028 etc., which JSON.stringify leaves raw
+            lines = out.decode('utf-8', 'replace').strip().split('\n')
+            if not lines[-1]:
                 raise RuntimeError(f'reddit_browser_fetch.mjs exited with {proc.returncode} and no result')
             d = json.loads(lines[-1])
             if d.get('disabled'):
